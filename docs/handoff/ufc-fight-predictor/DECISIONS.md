@@ -29,6 +29,20 @@
 - **Sin scraper propio ni modo `--sample`:** la descarga de CSVs tarda segundos, así
   que toda la verificación corre contra el dataset completo.
 
+## Notas de implementación (T2)
+
+- **Peleas del mismo día se calculan antes de aplicar sus updates.** Los torneos de
+  UFC 1-8 tienen peleadores con dos peleas la misma fecha; con "fecha estrictamente
+  menor" pelea-a-pelea el assert anti-leakage habría fallado. Se agrupa por fecha:
+  snapshot de todas las peleas del día → recién ahí los updates. Cumple el requisito
+  del PLAN (ningún agregado usa filas con fecha ≥ la de la pelea) y es más estricto.
+- **2 peleas descartadas de 8641**: `UFC - Road to UFC 4.6` no tiene fila en
+  `ufc_event_details.csv`, o sea no tiene fecha → imposible ubicarla cronológicamente.
+  Por eso `features.csv` tiene 2×8639 y no 2×8641.
+- **Duración de pelea** = `(ROUND-1)*5 + TIME`. Los formatos viejos de un round de
+  12'/15' quedan subestimados; solo afecta las tasas por minuto de esas peleas.
+  Marcado con `# ponytail:` en el código.
+
 ## Open questions for the spec author
 
 (ninguna por ahora)
