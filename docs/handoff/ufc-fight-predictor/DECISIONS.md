@@ -43,6 +43,25 @@
   12'/15' quedan subestimados; solo afecta las tasas por minuto de esas peleas.
   Marcado con `# ponytail:` en el código.
 
+## Notas de implementación (T3)
+
+- `CalibratedClassifierCV(..., cv="prefit")` ya no existe en la versión instalada de
+  sklearn: se usa `FrozenEstimator(modelo)`, que es el reemplazo directo. Mismo
+  protocolo que pide el PLAN (calibrar sobre validación, sin re-entrenar).
+
 ## Open questions for the spec author
 
-(ninguna por ahora)
+- **La calibración isotónica empeora las probabilidades, ¿la cambiamos por sigmoid?**
+  Implementado tal cual lo pide el PLAN (isotónica) y el gate pasa, pero medido en test:
+
+  | calibración | log loss | Brier | accuracy |
+  |---|---|---|---|
+  | ninguna (crudo) | 0.6460 | 0.2270 | 0.6443 |
+  | **isotónica (spec)** | **0.6802** | 0.2274 | 0.6458 |
+  | sigmoid (Platt) | 0.6471 | 0.2275 | 0.6414 |
+
+  La isotónica sobreajusta las ~1000 peleas únicas de validación y devuelve
+  probabilidades escalonadas/extremas. Como el valor del proyecto está justamente en
+  la calidad de las probabilidades (comparar contra la casa), esto importa. Cambiar
+  `method="isotonic"` → `"sigmoid"` en `train.py` es una línea. No lo hice por mi
+  cuenta porque la isotónica está listada como decisión tomada arriba.
