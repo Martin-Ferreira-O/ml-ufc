@@ -1,4 +1,4 @@
-> Handoff doc for task `ufc-fight-predictor`. Author: Claude Fable 5. Updated: 2026-07-28 19:39.
+> Handoff doc for task `ufc-fight-predictor`. Author: Claude Fable 5. Updated: 2026-07-28 19:50.
 > IMPLEMENTING AGENT: read CONTEXT.md → PLAN.md → PROGRESS.md → DECISIONS.md before starting.
 > Update PROGRESS.md after every meaningful change, and record any deviation from PLAN.md in DECISIONS.md.
 > Spec written by Claude Fable 5 against commit `(unborn — this package is the first commit)` on branch `ufc-fight-predictor`; source plan: `~/.claude/plans/quiero-que-realicemos-un-merry-tide.md`. If HEAD has moved far past this, reconcile before trusting the spec.
@@ -7,7 +7,8 @@
 
 ## Task
 
-Construir desde cero un predictor de peleas de UFC: scraper de UFCStats.com →
+Construir desde cero un predictor de peleas de UFC: descarga de los CSVs diarios de
+ufcstats.com (repo `Greco1899/scrape_ufc_stats`, refresh automático diario) →
 features point-in-time sin leakage → clasificador con probabilidades calibradas →
 web app Streamlit donde se eligen dos peleadores y se ve P(gana A) / P(gana B),
 con comparación opcional contra la cuota de una casa de apuestas ingresada a mano.
@@ -17,8 +18,8 @@ Motivación del usuario: detectar peleas donde el modelo discrepa de las casas
 ## Project area
 
 Repo **vacío** — este paquete es el primer contenido. Todo se crea nuevo:
-`scraper/scrape.py`, `features.py`, `train.py`, `predict.py`, `app.py`,
-`requirements.txt`, `README.md`, `data/` (generado, gitignoreado salvo quizá los CSVs).
+`fetch_data.py`, `features.py`, `train.py`, `predict.py`, `app.py`,
+`requirements.txt`, `README.md`, `data/` (generado, gitignoreado).
 
 ## Read first
 
@@ -33,8 +34,8 @@ No hay código previo que leer. Antes de codear:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt   # requests, beautifulsoup4, lxml, pandas, scikit-learn, streamlit
-.venv/bin/python scraper/scrape.py --sample 5   # smoke; sin flag = scrape completo (horas)
+.venv/bin/pip install -r requirements.txt   # requests, pandas, scikit-learn, streamlit
+.venv/bin/python fetch_data.py              # descarga los 6 CSVs (segundos)
 .venv/bin/python features.py
 .venv/bin/python train.py
 .venv/bin/python predict.py "Nombre A" "Nombre B"
@@ -45,7 +46,5 @@ python3 -m venv .venv
 
 - Repo nuevo: no hay CLAUDE.md; usar `.venv/bin/python` siempre (nunca python global).
 - Texto visible al usuario (UI de Streamlit, mensajes de CLI) **en español**.
-- Scraping educado: ~1 req/s contra ufcstats.com, User-Agent identificable, y caché de
-  HTML en disco para que re-runs no re-descarguen.
 - Código simple y directo (modo ponytail): stdlib/sklearn antes que deps nuevas, sin
   abstracciones especulativas.

@@ -1,4 +1,4 @@
-> Handoff doc for task `ufc-fight-predictor`. Author: Claude Fable 5. Updated: 2026-07-28 19:39.
+> Handoff doc for task `ufc-fight-predictor`. Author: Claude Fable 5. Updated: 2026-07-28 19:50.
 > IMPLEMENTING AGENT: read CONTEXT.md → PLAN.md → PROGRESS.md → DECISIONS.md before starting.
 > Update PROGRESS.md after every meaningful change, and record any deviation from PLAN.md in DECISIONS.md.
 > Spec written by Claude Fable 5 against commit `(unborn — this package is the first commit)` on branch `ufc-fight-predictor`; source plan: `~/.claude/plans/quiero-que-realicemos-un-merry-tide.md`. If HEAD has moved far past this, reconcile before trusting the spec.
@@ -7,9 +7,10 @@
 
 ## Goal
 
-Pipeline reproducible: scrapear UFCStats.com → construir features point-in-time →
-entrenar un clasificador calibrado → app Streamlit que da P(gana A) / P(gana B) para
-cualquier matchup y compara contra una cuota de casa de apuestas ingresada a mano.
+Pipeline reproducible: descargar los CSVs diarios de ufcstats.com ya scrapeados
+(repo `Greco1899/scrape_ufc_stats`) → construir features point-in-time → entrenar un
+clasificador calibrado → app Streamlit que da P(gana A) / P(gana B) para cualquier
+matchup y compara contra una cuota de casa de apuestas ingresada a mano.
 
 ## Non-goals / scope
 
@@ -28,19 +29,19 @@ aprobado por el usuario el 2026-07-28).
 Slug acoplado: un card por paso ordenado. Un solo implementador secuencial; el total
 cabe en una ventana de contexto.
 
-### T1 — Scraper de UFCStats
-- **Objetivo:** scraper completo de ufcstats.com con caché de HTML y modo `--sample`.
-- **Archivos:** `scraper/scrape.py`, `requirements.txt`, `.gitignore`.
+### T1 — Descarga de datos (Greco1899/scrape_ufc_stats)
+- **Objetivo:** script que descarga los 6 CSVs ya scrapeados de ufcstats.com desde `raw.githubusercontent.com/Greco1899/scrape_ufc_stats/main/` a `data/raw/`.
+- **Archivos:** `fetch_data.py`, `requirements.txt`, `.gitignore`.
 - **Depende de:** —
-- **Criterios de éxito:** `--sample 5` produce los 4 CSVs con ≥40 peleas; re-run no re-descarga (caché).
-- **Riesgos:** HTML de UFCStats cambia; parseo de formatos raros (NC, draws, "--" en stats).
-- **Dificultad:** 5 · **Modelo recomendado:** Opus · **Effort:** medium · **Motivo:** scraping multi-nivel estándar pero con muchos edge cases de parseo.
+- **Criterios de éxito:** los 6 CSVs en `data/raw/` (`ufc_event_details`, `ufc_fight_details`, `ufc_fight_results`, `ufc_fight_stats`, `ufc_fighter_details`, `ufc_fighter_tott`); `ufc_fight_results.csv` con >7000 filas.
+- **Riesgos:** el repo de terceros deja de refrescarse (mitigación: su scraper es open source — GPL-3 — y se puede correr localmente; fase futura).
+- **Dificultad:** 2 · **Modelo recomendado:** Opus · **Effort:** low · **Motivo:** descarga directa de 6 URLs, sin parseo de HTML.
 
 ### T2 — Features point-in-time
 - **Objetivo:** matriz de features por pelea sin leakage temporal, con Elo y espejado de esquinas.
 - **Archivos:** `features.py`.
 - **Depende de:** T1
-- **Criterios de éxito:** `features.csv` con 2× filas que fights.csv, target sin NaN, assert anti-leakage pasa.
+- **Criterios de éxito:** `features.csv` con 2× filas que las peleas válidas de `ufc_fight_results.csv`, target sin NaN, assert anti-leakage pasa.
 - **Riesgos:** leakage sutil (usar stats posteriores a la pelea) = modelo mentiroso con métricas infladas.
 - **Dificultad:** 7 · **Modelo recomendado:** Opus · **Effort:** medium · **Motivo:** la corrección temporal es sutil y un error invalida todo el proyecto.
 
@@ -72,34 +73,37 @@ cabe en una ventana de contexto.
 
 Cada paso es committeable por sí solo (código + PROGRESS.md actualizado).
 
-1. **T1 — Scraper.** `scraper/scrape.py` con requests + BeautifulSoup (lxml):
-   - Recorre `http://ufcstats.com/statistics/events/completed?page=all` → páginas de
-     evento (fecha, ubicación, lista de peleas) → detalle de cada pelea
-     (ganador, método, ronda, tiempo, y por peleador: knockdowns, sig. strikes
-     landed/attempted, total strikes, takedowns landed/attempted, sub attempts,
-     control time) → páginas de peleador (altura, alcance, stance, fecha de nacimiento).
-   - **Caché**: cada HTML descargado se guarda en `data/raw/html/<hash-o-id>.html`;
-     si existe, se lee de disco. Re-run = solo descarga eventos nuevos.
-   - ~1 req/s (`time.sleep(1)`), User-Agent identificable.
-   - Salida: `data/raw/events.csv`, `fights.csv`, `fight_stats.csv`, `fighters.csv`.
-   - Flag `--sample N`: procesa solo los N eventos más recientes (smoke test).
-   - Manejar: peleas sin ganador (NC/draw → excluir o marcar), stats "--"/"---" → NaN,
-     peleadores sin fecha de nacimiento.
+1. **T1 — Descarga de datos.** `fetch_data.py` con requests: baja los 6 CSVs de
+   `https://raw.githubusercontent.com/Greco1899/scrape_ufc_stats/main/<nombre>.csv`
+   a `data/raw/`. Se refrescan a diario en ese repo — re-correr el script = datos al día.
+   - Formatos verificados (headers reales, 2026-07-28):
+     - `ufc_fight_results.csv`: `EVENT, BOUT ("A vs. B"), OUTCOME ("W/L" = gana el
+       primero del BOUT; "L/W" el segundo; "NC/NC", "D/D"), WEIGHTCLASS, METHOD, ROUND,
+       TIME, TIME FORMAT, REFEREE, DETAILS, URL`.
+     - `ufc_fight_stats.csv`: **una fila por peleador por round**: `EVENT, BOUT, ROUND,
+       FIGHTER, KD, SIG.STR. ("19 of 39"), SIG.STR. %, TOTAL STR., TD, TD %, SUB.ATT,
+       REV., CTRL ("m:ss"), HEAD, BODY, LEG, DISTANCE, CLINCH, GROUND`.
+     - `ufc_fighter_tott.csv`: `FIGHTER, HEIGHT ('5\' 11"' o "--"), WEIGHT, REACH,
+       STANCE, DOB ("Jul 13, 1978" o "--"), URL`.
+     - `ufc_event_details.csv`: `EVENT, URL, DATE ("July 25, 2026"), LOCATION`.
+   - Valores faltantes vienen como `--`; strings con espacios colgantes — limpiar en T2.
    - `.gitignore`: `data/`, `.venv/`, `model.pkl`, `__pycache__/`.
-   - Scrape completo ≈ 700+ eventos / ~8k peleas — horas. Se corre una vez; todo el
-     desarrollo y la verificación usan `--sample`.
 
-2. **T2 — Features.** `features.py`, peleas ordenadas cronológicamente:
+2. **T2 — Features.** `features.py`, peleas ordenadas cronológicamente (join de
+   `ufc_fight_results` + `ufc_event_details.DATE` por EVENT; stats por round de
+   `ufc_fight_stats` agregadas a nivel pelea; físicos de `ufc_fighter_tott`).
+   Parsear "19 of 39" → landed/attempted, CTRL "m:ss" → segundos, fechas y `--` → NaN:
    - Para cada pelea y cada peleador, agregados **solo de sus peleas UFC previas**
      (fecha estrictamente menor): win rate, racha actual, nº de peleas, sig strikes
      landed/absorbed por minuto, TD promedio, finish rate, días desde la última pelea,
-     edad a la fecha de la pelea, y diffs físicos (alcance, altura) del CSV de peleadores.
+     edad a la fecha de la pelea, y diffs físicos (alcance, altura) de `ufc_fighter_tott`.
    - **Elo simple** (K fijo, ~32) actualizado en orden cronológico; el rating *antes*
      de la pelea es feature.
-   - **Prohibido** usar los totales de carrera de la página del peleador como features
-     (incluyen peleas futuras respecto de cada fila) — solo altura/alcance/stance/DOB.
+   - **Prohibido** usar totales de carrera pre-agregados como features (incluyen peleas
+     futuras respecto de cada fila) — de `ufc_fighter_tott` solo altura/alcance/stance/DOB.
    - Fila = diferencias A−B + **fila espejada** (B−A, target invertido) para eliminar
-     el sesgo de esquina roja. Target: 1 si gana A.
+     el sesgo de esquina roja. Target: 1 si gana A (OUTCOME "W/L" → gana el primero del
+     BOUT). Excluir NC y draws.
    - Debutantes: features de historial en NaN (HistGradientBoosting los maneja nativo).
    - **Assert anti-leakage**: ningún agregado usa filas con fecha ≥ fecha de la pelea
      (`assert` explícito en el código, no solo convención).
@@ -130,23 +134,19 @@ Cada paso es committeable por sí solo (código + PROGRESS.md actualizado).
 
 ## Verification
 
-Todo con `--sample` para no esperar horas (el scrape completo es idéntico sin el flag):
-
 | Comando | Señal de pass |
 |---------|---------------|
-| `.venv/bin/python scraper/scrape.py --sample 5` | exit 0; existen los 4 CSVs en `data/raw/`; `fights.csv` con ≥40 filas |
-| `.venv/bin/python scraper/scrape.py --sample 5` (2ª vez) | termina en segundos (caché — no re-descarga) |
-| `.venv/bin/python features.py` | exit 0; `data/features.csv` con ≈2× las filas de fights.csv; `target` sin NaN; assert anti-leakage no falla |
-| `.venv/bin/python train.py` | imprime log loss, Brier, accuracy + baselines; **con dataset completo**: log loss < 0.69 y accuracy > 0.55; genera `model.pkl` y `data/fighter_state.csv` |
+| `.venv/bin/python fetch_data.py` | exit 0; los 6 CSVs en `data/raw/`; `wc -l data/raw/ufc_fight_results.csv` > 7000 |
+| `.venv/bin/python features.py` | exit 0; `data/features.csv` con ≈2× las filas (peleas válidas) de `ufc_fight_results.csv`; `target` sin NaN; assert anti-leakage no falla |
+| `.venv/bin/python train.py` | imprime log loss, Brier, accuracy + baselines; log loss < 0.69 y accuracy > 0.55 en test; genera `model.pkl` y `data/fighter_state.csv` |
 | `.venv/bin/python predict.py "<A>" "<B>"` (nombres reales del dataset) | imprime dos probabilidades que suman 1.0 ± 0.01; invertir el orden da las mismas probabilidades intercambiadas |
 | **End-to-end**: `.venv/bin/streamlit run app.py` | manual: elegir dos peleadores → se ven las barras de probabilidad; ingresar cuota 1.50 → prob. implícita ≈66.7% y el delta vs modelo |
 
-Nota: los umbrales de métricas (log loss < 0.69, accuracy > 0.55) solo aplican con el
-dataset completo; con `--sample 5` alcanzan con que el pipeline corra de punta a punta.
 El chequeo de Streamlit es manual — no automatizarlo.
 
 ## Riesgos globales
 
-- UFCStats cambia su HTML → scraper frágil; la caché local permite re-parsear sin re-descargar.
+- Dependencia de un repo de terceros (`Greco1899/scrape_ufc_stats`) para el refresh
+  diario; si se abandona, su scraper GPL-3 se puede correr localmente (fase futura).
 - Expectativa realista: 60-65% accuracy es el techo de los modelos públicos de UFC; el
   valor del proyecto está en la **calibración** de las probabilidades, no en acertar todo.
