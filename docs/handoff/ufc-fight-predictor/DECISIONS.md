@@ -49,6 +49,13 @@
   sklearn: se usa `FrozenEstimator(modelo)`, que es el reemplazo directo. Mismo
   protocolo que pide el PLAN (calibrar sobre validación, sin re-entrenar).
 
+## Notas de implementación (T5)
+
+- **Desvío menor del PLAN**: el paso 5 pide que el README incluya "la advertencia de
+  que el scrape completo tarda horas". Eso quedó del diseño anterior (scraper propio);
+  con los CSVs de Greco1899 la descarga tarda segundos, así que la advertencia sería
+  falsa. El README documenta los tiempos reales (pipeline completo: un par de minutos).
+
 ## Open questions for the spec author
 
 - **La calibración isotónica empeora las probabilidades, ¿la cambiamos por sigmoid?**

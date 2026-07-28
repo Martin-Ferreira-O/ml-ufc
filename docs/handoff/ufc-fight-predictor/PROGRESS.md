@@ -11,11 +11,12 @@
 - [x] T2 — Features point-in-time + Elo + espejado (`features.py`)
 - [x] T3 — Train + calibración + eval temporal (`train.py`)
 - [x] T4 — Predict + app Streamlit (`predict.py`, `app.py`)
-- [ ] T5 — README (`README.md`)
+- [x] T5 — README (`README.md`)
 - [ ] Verificación completa del bloque Verification del PLAN
 
 ## Work log
 
+- 2026-07-28 20:26 — Claude Opus 5 (/implement) — T5 listo: `README.md` con instalación, pipeline en orden, tabla de qué hace cada script, métricas actuales y la garantía anti-leakage. Desvío menor registrado en DECISIONS (la advertencia de "el scrape tarda horas" que pide el PLAN quedó obsoleta al cambiar a los CSVs de Greco1899).
 - 2026-07-28 20:22 — Claude Opus 5 (/implement) — T4 listo: `predict.py` (match tolerante, promedio de las dos orientaciones) + `app.py` en español. Verificado: Chimaev/Strickland → 64.5% / 35.5%, suman 1.0, invertir el orden e ingresar los nombres en minúscula/con espacios de más da las mismas probabilidades intercambiadas; nombre inexistente → mensaje en español y exit 1. Streamlit arranca (HTTP 200, sin errores); el chequeo interactivo de la UI queda manual como pide el PLAN.
 - 2026-07-28 20:14 — Claude Opus 5 (/implement) — T3 listo: `train.py` con split temporal (train 13222 / val 1998 / test 2058 desde 2024-07-25). Test: log loss 0.6802, Brier 0.2274, accuracy 0.6458; baselines coin 0.6931/0.5000 y Elo 0.5588. Pasa el gate (<0.69, >0.55). `model.pkl` y `data/fighter_state.csv` (2716 peleadores) generados. **Ojo**: la calibración isotónica empeora el log loss vs el modelo crudo (0.6802 vs 0.6460) — ver Open questions en DECISIONS.
 - 2026-07-28 20:05 — Claude Opus 5 (/implement) — T2 listo: `features.py` con 16 features point-in-time, Elo (K=32) y espejado. Verificado: 17278 filas = 2×8639 peleas, `target` sin NaN, assert anti-leakage pasa, diffs espejados suman 0 exacto. 2 peleas (`Road to UFC 4.6`) descartadas por no tener fecha en `ufc_event_details.csv`.
