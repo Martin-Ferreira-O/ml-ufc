@@ -9,4 +9,4 @@ that must be `done` first (or `—`). Retire finished slugs with `/archive <slug
 
 | slug | status | depends-on | updated | note |
 |------|--------|------------|---------|------|
-| ufc-fight-predictor | in-progress | — | 2026-07-28 | T1 hecho (CSVs en data/raw); siguiente: T2 features |
+| ufc-fight-predictor | done | — | 2026-07-28 | T1-T5 implementados y verificados; pipeline completo corre end-to-end |

@@ -33,8 +33,9 @@ def _num(x):
 
 
 def _ctrl_seconds(x):
+    """'m:ss' -> segundos; '--' (no se registro control) -> nan, no cero."""
     m = re.match(r"\s*(\d+):(\d+)", str(x))
-    return float(m.group(1)) * 60 + float(m.group(2)) if m else 0.0
+    return float(m.group(1)) * 60 + float(m.group(2)) if m else np.nan
 
 
 def _inches(x):

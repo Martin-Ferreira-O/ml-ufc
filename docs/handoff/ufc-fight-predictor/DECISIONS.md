@@ -58,6 +58,12 @@
 
 ## Open questions for the spec author
 
+- **Sacar del PLAN la advertencia de "el scrape tarda horas" (paso 5 / T5).** Quedó del
+  diseño con scraper propio; con los CSVs de Greco1899 la descarga tarda segundos, así
+  que ponerla en el README sería mentir. El review en contexto limpio la marcó como
+  GAP 1 y coincidió en que el README tiene razón y la línea del PLAN es la obsoleta.
+  Como `PLAN.md` es read-mostly, la corrección queda a cargo del autor del spec.
+
 - **La calibración isotónica empeora las probabilidades, ¿la cambiamos por sigmoid?**
   Implementado tal cual lo pide el PLAN (isotónica) y el gate pasa, pero medido en test:
 
