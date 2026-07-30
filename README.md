@@ -33,18 +33,20 @@ O desde la terminal, sin app:
 | script | qué hace | salida |
 |---|---|---|
 | `fetch_data.py` | baja los 6 CSVs de ufcstats.com ya scrapeados por [`Greco1899/scrape_ufc_stats`](https://github.com/Greco1899/scrape_ufc_stats), que se refrescan a diario. Re-correrlo = datos al día. | `data/raw/*.csv` |
-| `features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
-| `train.py` | `HistGradientBoostingClassifier` con split temporal (test = últimos 2 años, validación = los 2 anteriores) + calibración isotónica sobre validación. Imprime log loss, Brier y accuracy contra dos baselines: moneda y "gana el de mayor Elo". | `model.pkl`, `data/fighter_state.csv` |
+| `features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo, knockdowns propios y recibidos, defensas de striking y derribo, tasa de veces finalizado, Elo promedio de los rivales). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
+| `train.py` | `HistGradientBoostingClassifier` con split temporal (test = últimos 2 años, validación = los 2 anteriores), sin calibración: el modelo crudo dio mejor log loss que isotónica y sigmoid. Evalúa sobre peleas únicas con la misma predicción que sirve `predict.py` (promedio de ambas orientaciones), imprime una tabla de confiabilidad por deciles, y el `model.pkl` final se re-entrena con todo el historial. | `model.pkl`, `data/fighter_state.csv` |
 | `predict.py` | `predict(a, b) -> (p_a, p_b)`. Predice en las dos orientaciones y promedia, así el resultado no depende del orden. | — |
 | `app.py` | UI Streamlit: elegís dos peleadores, ves las probabilidades como barras y, si ingresás la cuota decimal de la casa, la probabilidad implícita (1/cuota) y la diferencia contra el modelo. | — |
 
 ## Resultados actuales
 
-Sobre las peleas de los últimos 2 años (2058 filas, nunca vistas en entrenamiento):
+Sobre las peleas de los últimos 2 años (1029 peleas únicas, nunca vistas en
+entrenamiento), evaluando la predicción desplegada — el promedio de ambas
+orientaciones, igual que `predict.py`:
 
 | | log loss | Brier | accuracy |
 |---|---|---|---|
-| **modelo** | 0.6802 | 0.2274 | **0.6458** |
+| **modelo** | 0.6428 | 0.2254 | **0.6550** |
 | moneda | 0.6931 | 0.2500 | 0.5000 |
 | mayor Elo | — | — | 0.5588 |
 

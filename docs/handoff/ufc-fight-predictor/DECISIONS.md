@@ -23,6 +23,7 @@
 - **Modelo: `HistGradientBoostingClassifier` de sklearn + calibración isotónica.**
   Sin XGBoost/LightGBM: no agregan nada hasta que sklearn se quede corto, y HistGB
   maneja NaN nativo (debutantes). // ponytail: upgrade a XGBoost solo si las métricas lo piden.
+  **Superseded 2026-07-28: la calibración se eliminó** — ver "Ronda de mejora" abajo.
 - **Anti-leakage como requisito duro:** features point-in-time con `assert` explícito,
   diffs A−B + espejado de esquinas, split temporal. Un leak invalida el proyecto entero
   (métricas infladas, predicciones inútiles) — por eso T2 tiene dificultad 7.
@@ -56,6 +57,44 @@
   con los CSVs de Greco1899 la descarga tarda segundos, así que la advertencia sería
   falsa. El README documenta los tiempos reales (pipeline completo: un par de minutos).
 
+## Ronda de mejora (2026-07-28)
+
+Protocolo: decisiones solo con log loss de validación (2022-07 → 2024-07); test se
+reporta una vez por fase. Regla de corte: un cambio queda si mejora val ≥ 0.003;
+zona gris → desempate con 4 folds rolling-origin de 1 año que terminan en corte_test.
+
+- **Medición corregida.** Antes se evaluaba el modelo crudo sobre filas espejadas;
+  el predictor real (`predict.py`) promedia ambas orientaciones. Ahora `train.py`
+  mide eso sobre peleas únicas (slicing `[0::2]`/`[1::2]`, los pares son adyacentes).
+  El 0.6802 histórico era artefacto de la isotónica; el baseline real era 0.6449.
+- **Calibración eliminada (resuelve la open question).** La isotónica ya estaba
+  medida como dañina (tabla previa: 0.6802 vs 0.6460 crudo). Chequeo final: sigmoid
+  ajustada sobre las filas sin espejar de val y evaluada *in-sample* — su mejor caso
+  posible — empata con el crudo (0.6649 vs 0.6650). Se picklea el HistGB crudo;
+  de paso desaparece la dependencia de `FrozenEstimator` (sklearn ≥ 1.6).
+- **`model.pkl` ahora se re-entrena con todo el historial** antes de picklear.
+  Antes se desplegaba el modelo de la ventana train, cuyos datos terminaban 4 años
+  atrás. Las métricas del README siguen viniendo del modelo de split.
+- **6 features nuevas (todas de CSVs ya descargados):** `kd_per15`,
+  `kd_against_per15` (poder/mentón), `finished_against_rate` (durabilidad),
+  `td_def`, `str_def` (defensas: intentos del rival en contra), `avg_opp_elo`
+  (calidad de rivales, con Elo PRE-pelea para no filtrar el resultado).
+  Val 0.6650 → 0.6594 (−0.0056). Ablación: sacar cualquier grupo empeora
+  (finished_against +0.0047, avg_opp_elo +0.0043, defensas +0.0026, kd +0.0018).
+- **Features probadas y descartadas** (medidas, no supuestas): `win_rate_last5` y
+  `southpaw` (juntas o separadas empeoran val), `five_rounds` (+0.0026 peor),
+  `weight_lb` (exactamente neutro). Cero líneas en el repo.
+- **Elo queda con K=32.** Variantes K=40/28 por finish y K provisional para
+  debutantes: el desempate por folds dio −0.0010 para K-finish, bajo el corte.
+- **Hiperparámetros quedan como estaban** (lr=0.05, leaves=15, l2=1.0). Grid 27
+  combos × 4 folds: el mejor (lr=0.08, leaves=15, l2=0.1, media 0.6593) le gana al
+  actual (0.6600) por −0.0007, bajo el corte. `monotonic_cst` en elo empeora
+  (0.6611). El grid completo quedó plano en 0.6593–0.6650: no hay jugo ahí.
+- **Lección de medición:** el mismo dataset por round-trip CSV vs en memoria mueve
+  el val log loss ~0.003 (HistGB es caótico ante el último bit de los floats).
+  Por eso toda comparación se hace por el mismo camino (CSV, el del pipeline real)
+  y los deltas chicos se desempatan con folds.
+
 ## Open questions for the spec author
 
 - **Sacar del PLAN la advertencia de "el scrape tarda horas" (paso 5 / T5).** Quedó del
@@ -63,18 +102,3 @@
   que ponerla en el README sería mentir. El review en contexto limpio la marcó como
   GAP 1 y coincidió en que el README tiene razón y la línea del PLAN es la obsoleta.
   Como `PLAN.md` es read-mostly, la corrección queda a cargo del autor del spec.
-
-- **La calibración isotónica empeora las probabilidades, ¿la cambiamos por sigmoid?**
-  Implementado tal cual lo pide el PLAN (isotónica) y el gate pasa, pero medido en test:
-
-  | calibración | log loss | Brier | accuracy |
-  |---|---|---|---|
-  | ninguna (crudo) | 0.6460 | 0.2270 | 0.6443 |
-  | **isotónica (spec)** | **0.6802** | 0.2274 | 0.6458 |
-  | sigmoid (Platt) | 0.6471 | 0.2275 | 0.6414 |
-
-  La isotónica sobreajusta las ~1000 peleas únicas de validación y devuelve
-  probabilidades escalonadas/extremas. Como el valor del proyecto está justamente en
-  la calidad de las probabilidades (comparar contra la casa), esto importa. Cambiar
-  `method="isotonic"` → `"sigmoid"` en `train.py` es una línea. No lo hice por mi
-  cuenta porque la isotónica está listada como decisión tomada arriba.

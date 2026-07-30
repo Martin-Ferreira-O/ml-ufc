@@ -23,6 +23,8 @@ FEATURES = [
     "elo", "n_fights", "win_rate", "streak", "slpm", "sapm", "str_acc",
     "td_per15", "td_acc", "sub_per15", "ctrl_per_min", "finish_rate",
     "days_since_last", "age", "height_in", "reach_in",
+    "kd_per15", "kd_against_per15", "finished_against_rate",
+    "td_def", "str_def", "avg_opp_elo",
 ]
 
 
@@ -60,7 +62,8 @@ def _fight_minutes(row):
 def _new_state():
     return dict(n=0, w=0, streak=0, sig_l=0.0, sig_a=0.0, sig_abs=0.0, td_l=0.0,
                 td_a=0.0, sub=0.0, ctrl=0.0, minutes=0.0, finishes=0,
-                last_date=None, elo=1500.0)
+                last_date=None, elo=1500.0, kd=0.0, kd_abs=0.0, finished_against=0,
+                td_abs_l=0.0, td_abs_a=0.0, sig_abs_a=0.0, opp_elo=0.0)
 
 
 def _snapshot(st, date, dob, height, reach):
@@ -80,6 +83,12 @@ def _snapshot(st, date, dob, height, reach):
         "sub_per15": div(st["sub"], mins) * 15 if mins else np.nan,
         "ctrl_per_min": div(st["ctrl"] / 60, mins),
         "finish_rate": div(st["finishes"], n),
+        "kd_per15": div(st["kd"], mins) * 15 if mins else np.nan,
+        "kd_against_per15": div(st["kd_abs"], mins) * 15 if mins else np.nan,
+        "finished_against_rate": div(st["finished_against"], n),
+        "td_def": 1 - div(st["td_abs_l"], st["td_abs_a"]),
+        "str_def": 1 - div(st["sig_abs"], st["sig_abs_a"]),
+        "avg_opp_elo": div(st["opp_elo"], n),
         "days_since_last": (date - st["last_date"]).days if st["last_date"] else np.nan,
         "age": (date - dob).days / 365.25 if pd.notna(dob) else np.nan,
         "height_in": height,
@@ -122,6 +131,7 @@ def _load():
         "td_l": [x[0] for x in td], "td_a": [x[1] for x in td],
         "sub": pd.to_numeric(stats["SUB.ATT"], errors="coerce"),
         "ctrl": stats["CTRL"].map(_ctrl_seconds),
+        "kd": pd.to_numeric(stats["KD"], errors="coerce"),
     }).groupby(["EVENT", "BOUT", "FIGHTER"]).sum(min_count=1)
 
     phys = tott.drop_duplicates("FIGHTER").set_index("FIGHTER")
@@ -137,7 +147,7 @@ def build():
     """-> (features_df, state_df). Una sola pasada cronologica."""
     results, agg, phys = _load()
     empty = pd.Series({"sig_l": np.nan, "sig_a": np.nan, "td_l": np.nan,
-                       "td_a": np.nan, "sub": np.nan, "ctrl": np.nan})
+                       "td_a": np.nan, "sub": np.nan, "ctrl": np.nan, "kd": np.nan})
     states, rows = {}, []
 
     for date, dia in results.groupby("DATE", sort=True):
@@ -184,6 +194,9 @@ def _update(states, agg, empty, f, date):
     esperado_a = 1 / (1 + 10 ** ((eb - ea) / 400))
     states[a]["elo"] = ea + K_ELO * (ganador - esperado_a)
     states[b]["elo"] = eb + K_ELO * ((1 - ganador) - (1 - esperado_a))
+    # calidad de rivales: siempre el Elo PRE-pelea del rival (ea/eb ya capturados)
+    states[a]["opp_elo"] += eb
+    states[b]["opp_elo"] += ea
 
     for st, mio, suyo, gano in ((states[a], sa, sb, ganador), (states[b], sb, sa, 1 - ganador)):
         st["n"] += 1
@@ -191,14 +204,20 @@ def _update(states, agg, empty, f, date):
         st["streak"] = max(st["streak"], 0) + 1 if gano else min(st["streak"], 0) - 1
         st["minutes"] += f["minutes"]
         st["finishes"] += f["finish"] * gano
+        st["finished_against"] += f["finish"] * (1 - gano)
         st["last_date"] = date
         for k, col in (("sig_l", "sig_l"), ("sig_a", "sig_a"), ("td_l", "td_l"),
-                       ("td_a", "td_a"), ("sub", "sub"), ("ctrl", "ctrl")):
+                       ("td_a", "td_a"), ("sub", "sub"), ("ctrl", "ctrl"),
+                       ("kd", "kd")):
             v = mio[col]
             if pd.notna(v):
                 st[k] += v
-        if pd.notna(suyo["sig_l"]):
-            st["sig_abs"] += suyo["sig_l"]
+        # lo que hizo el rival: absorbido / intentos en contra (para defensas)
+        for k, col in (("sig_abs", "sig_l"), ("sig_abs_a", "sig_a"), ("kd_abs", "kd"),
+                       ("td_abs_l", "td_l"), ("td_abs_a", "td_a")):
+            v = suyo[col]
+            if pd.notna(v):
+                st[k] += v
 
 
 def _state_df(states, phys):
