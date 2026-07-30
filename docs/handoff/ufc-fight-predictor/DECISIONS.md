@@ -95,6 +95,98 @@ zona gris → desempate con 4 folds rolling-origin de 1 año que terminan en cor
   Por eso toda comparación se hace por el mismo camino (CSV, el del pipeline real)
   y los deltas chicos se desempatan con folds.
 
+## Ronda de protocolo y modelo (2026-07-30)
+
+**Objetivo del proyecto revisado por el usuario:** la app no busca discrepar del mercado,
+sino ser una fuente de información para apostar con más seguridad. Eso **supersede** la
+decisión de "odds solo como benchmark manual": ahora entran como feature (fase 2), en un
+segundo modelo que convive con el que no las usa.
+
+- **Diagnóstico: no hay under- ni overfitting, hay techo de información.** Entre 50 y 800
+  árboles el train loss cae 0.6371 → 0.4684 y el de validación se mueve 0.6613 → 0.6701.
+  El grid plano de la ronda anterior tenía esta causa. Corolario: **no tocar más los
+  hiperparámetros del HistGB**, el pozo está seco.
+- **El umbral de ≥0.003 era ruido.** El SE del delta pareado sobre las 999 peleas de val
+  es **0.0028**, o sea 1.1σ. Todas las decisiones de la ronda anterior se tomaron dentro
+  del ruido. Reemplazado por `rolling_origin` (20 folds de 1 año, **7195 peleas**) +
+  `comparar` (bootstrap pareado): **un cambio queda sólo si el IC95% no toca cero.**
+- **El protocolo se pagó solo en la primera corrida.** La logística sola le ganaba al
+  HistGB en validación (0.6566 vs 0.6597) y en test (0.6384 vs 0.6409), pero en
+  rolling-origin **pierde** (0.6646 vs 0.6623, IC95% [−0.0020, +0.0068], no concluyente).
+  Era ruido de ventana. Con 10 folds el blend también salía no concluyente; hicieron falta
+  20 folds para resolverlo.
+- **Se despliega el promedio HistGB + logística.** −0.0031 vs HistGB solo,
+  IC95% [−0.0052, −0.0009] sobre 7195 peleas: **queda**. Tres motivos además del log loss:
+  (a) la logística sin intercepto sobre features antisimétricas cumple `p(A,B)+p(B,A)=1`
+  exacto — el HistGB crudo lo viola hasta en **0.205**, y el promedio de orientaciones lo
+  venía tapando; (b) da la contribución exacta de cada feature al logit, que es el insumo
+  de la explicación en la app, sin SHAP; (c) estabiliza: entre 100 y 300 iteraciones el
+  HistGB solo se degrada 0.6632 → 0.6716 y el blend apenas 0.6617 → 0.6630.
+- **`early_stopping=False` explícito.** Con `'auto'` sklearn lo activaba (train = 13222
+  filas > 10000) y separaba un 10% **aleatorio**: como cada pelea está dos veces espejada,
+  el gemelo de cada fila de la validación interna quedaba en train y el criterio de parada
+  se evaluaba sobre filas ya vistas. Caía en 94 iteraciones ≈ el óptimo por casualidad.
+  `max_iter=100` fijo es el mejor medido con rolling-origin.
+- **Sin indicador de faltante en la logística.** Sobre un dataset espejado su peso óptimo
+  es 0 exacto: la loss es invariante ante cambiarle el signo, así que con L2 el mínimo
+  único tiene `w=0`. Sólo agregaría 22 columnas muertas. Se imputa NaN → 0, que es el
+  relleno antisimétrico natural de un diff y sobrevive al espejado.
+- **Calibración: re-verificada como dañina, ahora bien medida.** Factor de nitidez
+  ajustado en los folds 0-9 y evaluado out-of-sample en los 10-19 (4827 peleas):
+  a = 0.898, delta **+0.0008, IC95% [+0.0004, +0.0013] → se descarta.** La decisión
+  original era correcta; ahora tiene respaldo real y no una ventana de 999 peleas.
+- **La tabla de confiabilidad se calcula sobre ambas orientaciones.** Puntuarla sólo en el
+  orden del CSV (donde el ganador va primero el 56% de las veces en la ventana de test) le
+  suma ~0.09 a cada bucket y simula un sesgo hacia arriba que no existe. El log loss **no**
+  cambia — es invariante cuando la predicción es simétrica — pero la tabla sí, y llevó a
+  diagnosticar sub-confianza donde no la había.
+- **`model.pkl` ahora es un dict** `{"hgb", "lineal", "cols"}`. `cols` viaja con el pickle
+  para que `predict.py` no pueda quedar fuera de sincro con el entrenamiento.
+
+## Ronda de odds y confianza (2026-07-30)
+
+- **Fuente de odds: `shortlikeafox/ultimate_ufc_dataset` en GitHub**, no Kaggle. Kaggle
+  pide token de API y el usuario no lo tiene; este repo sirve el mismo dataset por
+  `raw.githubusercontent`, con el mismo patrón que `fetch_data.py` ya usaba. Cubre
+  2010-03 → 2026-03, **matchea el 95.0%** de las peleas de ese período (78.9% del total)
+  con clave (fecha + par de nombres ordenado). Los que fallan son alias — "Mirko
+  Filipovic" vs "Cro Cop" — y no se construyó fuzzy matching por el 5%.
+- **El mercado le gana al modelo por goleada.** Sobre las 5679 peleas con cuota del
+  rolling-origin: modelo 0.6608, **mercado 0.6115** (−0.0493, IC95% [−0.0571, −0.0418]).
+- **Meterle la cuota al modelo no mejora sobre la cuota sola:** 0.6119 vs 0.6115,
+  **+0.0005 IC95% [−0.0031, +0.0042], no concluyente.** Las 22 features no aportan nada
+  por encima de la línea de cierre. Se despliegan igual los dos modelos porque el usuario
+  quiere ver ambos, pero el de con odds no es "el bueno": es el que muestra cuánto mueve
+  el historial a la cuota, que resultó ser nada.
+- **La discrepancia con el mercado es un anti-indicador, no valor.** Log loss del modelo
+  por tramo de |modelo−mercado|: <0.05 → 0.6592 (mercado 0.6606, empatan); 0.15-0.25 →
+  0.6620 vs 0.5790; >0.25 → **0.7416 vs 0.5402, peor que una moneda**. En las 1745 peleas
+  donde eligen ganadores distintos, la casa acierta **58.8%** y el modelo **41.8%**.
+- **La confianza se basa en la coincidencia con el mercado, NO en la disponibilidad de
+  datos.** La hipótesis original (poca data → menos confiable) se midió y es **falsa**:
+  log loss por experiencia del menos experimentado de los dos — debutantes (0 peleas,
+  17-22 features en NaN) **0.6639**, veteranos (11+) **0.6512**, y todo lo del medio entre
+  0.6534 y 0.6668. Accuracy plana en 0.60-0.61. Marcar "confianza baja" por ser debutante
+  habría sido mentirle al usuario.
+- **Corolario: la fase de récord pre-UFC (fase 6 del plan) pierde su premisa.** Se
+  justificaba por el "agujero" del 25.7% de peleas con debutante, pero ahí el modelo rinde
+  igual que en el resto. El techo máximo que podría recuperar es ~0.013 de log loss, y el
+  mercado está 0.049 más arriba. Queda pendiente de decisión del usuario.
+- **`test_app.py`**: primer check del repo. Sin framework, `python test_app.py`. Cubre
+  simetría de `predict` (con y sin cuotas), que el nivel de confianza salga del tramo
+  correcto, y que la app renderice ambos caminos vía `AppTest`.
+- **`n_fights_min` y `n_nan` en `features.csv`**: metadatos simétricos (valen igual en las
+  dos filas espejadas), no features. Sirvieron para medir lo de arriba y quedan para poder
+  re-medirlo. No entran al modelo.
+
+## Hechos externos verificados (2026-07-30)
+
+- **`ufcstats.com` está detrás de un challenge JS de proof-of-work.** No se puede scrapear
+  con `requests`. El mirror de `Greco1899/scrape_ufc_stats` no es una comodidad: es la
+  única vía práctica. Su repo tiene exactamente los 6 CSVs que ya se bajan.
+- **Sherdog responde** con UA normal (107 KB, bloque de récord W/L/NC + historial): es la
+  fuente viable para el récord pre-UFC. **Tapology está bloqueado por Cloudflare** (403).
+
 ## Open questions for the spec author
 
 - **Sacar del PLAN la advertencia de "el scrape tarda horas" (paso 5 / T5).** Quedó del

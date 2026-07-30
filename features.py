@@ -26,6 +26,10 @@ FEATURES = [
     "kd_per15", "kd_against_per15", "finished_against_rate",
     "td_def", "str_def", "avg_opp_elo",
 ]
+# El mercado no sale del historial del peleador: es una fuente aparte, y por eso vive en
+# su propio conjunto. Se entrena un modelo con cada uno para poder mostrar los dos.
+MERCADO = "mkt_logit"
+FEATURES_ODDS = FEATURES + [MERCADO]
 
 
 def _num(x):
@@ -96,6 +100,45 @@ def _snapshot(st, date, dob, height, reach):
     }
 
 
+def _norm(s):
+    return s.astype(str).str.lower().str.split().str.join(" ")
+
+
+def _mercado(results):
+    """logit de la probabilidad implicita de fighter_a, sin vig.
+
+    Ya es antisimetrico: al espejar la pelea se niega solo, igual que los diffs. Las dos
+    implicitas suman >1 (ese exceso es el margen de la casa), asi que se normalizan.
+    Sin el CSV de odds, o para peleas sin match, queda NaN y el modelo base no se entera.
+    """
+    vacio = pd.Series(np.nan, index=results.index)
+    archivo = RAW / "ufc_odds.csv"
+    if not archivo.exists():
+        return vacio
+
+    o = pd.read_csv(archivo, low_memory=False)
+    o["date"] = pd.to_datetime(o["date"], errors="coerce")
+    # cuota americana -> probabilidad implicita. El denominador comun evita el inf de
+    # 100/(x+100) cuando x == -100 exacto (np.where evalua las dos ramas igual).
+    implicita = lambda x: np.where(x < 0, np.abs(x), 100.0) / (np.abs(x) + 100)  # noqa: E731
+    pr, pb = implicita(o["R_odds"].to_numpy(float)), implicita(o["B_odds"].to_numpy(float))
+    p_r = pr / (pr + pb)
+
+    # clave simetrica (fecha + par ordenado): el orden R/B de la fuente no tiene por que
+    # coincidir con nuestro A/B, asi que se guarda la probabilidad del nombre menor
+    r, b = _norm(o["R_fighter"]), _norm(o["B_fighter"])
+    menor = np.minimum(r, b)
+    tabla = dict(zip(zip(o["date"].dt.date, menor, np.maximum(r, b)),
+                     np.where(r == menor, p_r, 1 - p_r)))
+
+    a, b2 = _norm(results["fighter_a"]), _norm(results["fighter_b"])
+    p = np.array([tabla.get(k, np.nan) for k in
+                  zip(results["DATE"].dt.date, np.minimum(a, b2), np.maximum(a, b2))])
+    p = np.where(a.to_numpy() <= b2.to_numpy(), p, 1 - p)  # orientar hacia fighter_a
+    p = np.clip(p, 1e-6, 1 - 1e-6)
+    return pd.Series(np.log(p / (1 - p)), index=results.index)
+
+
 def _load():
     results = pd.read_csv(RAW / "ufc_fight_results.csv")
     events = pd.read_csv(RAW / "ufc_event_details.csv")
@@ -121,6 +164,7 @@ def _load():
     results["finish"] = results["METHOD"].str.contains(
         "KO/TKO|Submission", na=False, regex=True).astype(int)
     results = results.sort_values(["DATE", "EVENT", "BOUT"]).reset_index(drop=True)
+    results[MERCADO] = _mercado(results)
 
     # stats por round -> agregado por (evento, pelea, peleador)
     sl = stats["SIG.STR."].map(_num)
@@ -168,14 +212,20 @@ def build():
                     p["height_in"] if p is not None else np.nan,
                     p["reach_in"] if p is not None else np.nan))
 
+            # n_fights_min y n_nan son simetricos ante el intercambio, asi que valen igual
+            # en las dos filas espejadas. No son features: miden cuanto sabemos de la
+            # pelea, y de ahi sale el nivel de confianza que se muestra en la app.
             base = {"date": date, "event": f["EVENT"], "bout": f["BOUT"],
-                    "fight_id": f"{f['EVENT']}|{f['BOUT']}"}
+                    "fight_id": f"{f['EVENT']}|{f['BOUT']}",
+                    "n_fights_min": min(snaps[0]["n_fights"], snaps[1]["n_fights"]),
+                    "n_nan": sum(pd.isna(snaps[0][k]) or pd.isna(snaps[1][k])
+                                 for k in FEATURES)}
             diffs = {k: snaps[0][k] - snaps[1][k] for k in FEATURES}
-            rows.append({**base, "fighter_a": a, "fighter_b": b,
-                         **diffs, "target": f["target"]})
+            rows.append({**base, "fighter_a": a, "fighter_b": b, **diffs,
+                         MERCADO: f[MERCADO], "target": f["target"]})
             rows.append({**base, "fighter_a": b, "fighter_b": a,
                          **{k: -v for k, v in diffs.items()},
-                         "target": 1 - f["target"]})
+                         MERCADO: -f[MERCADO], "target": 1 - f["target"]})
             pendientes.append(f)
 
         for f in pendientes:  # updates recien al cerrar el dia
@@ -241,7 +291,8 @@ def main():
     feats.to_csv(OUT, index=False)
     assert feats["target"].notna().all(), "target con NaN"
     print(f"{OUT}: {len(feats)} filas ({len(feats) // 2} peleas), "
-          f"{len(FEATURES)} features, {len(estado)} peleadores")
+          f"{len(FEATURES)} features, {len(estado)} peleadores, "
+          f"odds en el {feats[MERCADO].notna().mean():.1%} de las filas")
 
 
 if __name__ == "__main__":
