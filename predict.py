@@ -13,6 +13,7 @@ modelo y mercado, que es lo unico que resulto predecir el error (ver CONFIANZA).
 import pathlib
 import pickle
 import sys
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -36,8 +37,27 @@ CONFIANZA = (
 )
 
 
+# ROI de flat-bet out-of-sample (train.apostabilidad, 5773 peleas con cuota REAL, vig
+# mediano 3.6%), apostando todo lado con EV = p_modelo*cuota - 1 > 0, por tramo:
+#   alta      +3.66%  IC95% [-3.93%, +11.46%]  n=959   <- lo unico que no pierde medido
+#   media     -7.35%  IC95% [-12.27%, -2.35%]  n=2413
+#   baja      -7.34%  IC95% [-15.17%, +0.72%]  n=1300
+#   muy baja  -6.48%  IC95% [-19.69%, +7.35%]  n=573
+# Todo junto: -5.24%. Control siempre-favorito: -3.35%; siempre-underdog: -6.73%.
+# O sea: el unico tramo apostable es donde el modelo YA coincide con la casa, y ni ahi
+# el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada.
+APOSTABLE = "alta"
+ROI_APOSTABLE = "+3.7% IC95% [-3.9%, +11.5%] sobre 959 apuestas"
+
+
 def _normalizar(s):
-    return " ".join(str(s).lower().split())
+    """Minusculas, sin acentos: ESPN escribe 'Spasić' donde ufcstats escribe 'Spasic'.
+
+    Verificado sobre las 2716 filas del estado: ningun par de peleadores distintos
+    colapsa a la misma clave, asi que el indice sigue siendo unico.
+    """
+    s = unicodedata.normalize("NFKD", str(s))
+    return " ".join("".join(c for c in s if not unicodedata.combining(c)).lower().split())
 
 
 def cargar():
@@ -118,6 +138,19 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None)
     brecha = abs(p_a - p_mkt)
     out["confianza"], out["motivo"] = next(
         (nivel, texto) for corte, nivel, texto in CONFIANZA if brecha < corte)
+    # Los textos de brecha grande citan el stat de cuando eligen ganadores distintos.
+    # Si coinciden en el ganador eso no aplica: la discrepancia es solo de magnitud.
+    if out["confianza"] != "alta" and (p_a > 0.5) == (p_mkt > 0.5):
+        out["motivo"] += (" Ojo: aca coinciden en el ganador, lo que discrepa es la "
+                          "magnitud (el modelo lo ve mucho mas parejo que la casa).")
+
+    # EV con la cuota que realmente paga la casa. `apuesta` solo se marca en el tramo
+    # que resulto no perder (ver ROI arriba): fuera de ahi un EV alto es ruido caro.
+    out["ev_a"] = p_a * cuotas[0] - 1
+    out["ev_b"] = (1 - p_a) * cuotas[1] - 1
+    lado = "a" if out["ev_a"] >= out["ev_b"] else "b"
+    out["apuesta"] = (lado if out["confianza"] == APOSTABLE and out[f"ev_{lado}"] > 0
+                      else None)
     return out
 
 

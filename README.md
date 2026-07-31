@@ -1,8 +1,8 @@
 # Predictor de peleas UFC
 
 Predice P(gana A) / P(gana B) para cualquier matchup de UFC y lo compara contra la
-cuota de una casa de apuestas que ingresás a mano. La idea es que sea una fuente de
-información más para decidir, no un detector automático de valor.
+cuota de la casa — la de Betano se busca sola para las peleas anunciadas. La idea es que
+sea una fuente de información más para decidir, no un detector automático de valor.
 
 ## Instalación
 
@@ -26,6 +26,8 @@ O desde la terminal, sin app:
 
 ```sh
 .venv/bin/python predict.py "Khamzat Chimaev" "Sean Strickland"
+.venv/bin/python cartelera.py      # los eventos anunciados, numerados
+.venv/bin/python cartelera.py 3    # recorre el evento 3, una pelea a la vez
 ```
 
 ## Qué hace cada script
@@ -36,8 +38,35 @@ O desde la terminal, sin app:
 | `features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo, knockdowns propios y recibidos, defensas de striking y derribo, tasa de veces finalizado, Elo promedio de los rivales). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
 | `train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal (test = últimos 2 años, validación = los 2 anteriores). Sin calibración: re-verificada como dañina con el protocolo nuevo. Decide con **rolling-origin de 20 folds (7195 peleas) + IC95% del delta pareado**, no con el delta de una sola ventana. Imprime train loss junto a val/test y una tabla de confiabilidad. El `model.pkl` final se re-entrena con todo el historial. | `model.pkl`, `data/fighter_state.csv` |
 | `predict.py` | `predict(a, b, cuotas=None) -> dict`. Sirve el mismo promedio de modelos que se evalúa, en las dos orientaciones, así el resultado no depende del orden. Con las dos cuotas agrega la probabilidad del mercado, la del modelo alimentado con ella, el nivel de confianza y los factores que mueven la predicción. | — |
-| `app.py` | UI Streamlit: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, el nivel de confianza con su motivo, y las features que más mueven la predicción. | — |
-| `test_app.py` | `python test_app.py`. Verifica que la predicción no dependa del orden, que la confianza salga del tramo correcto, y que la app renderice con y sin cuotas. | — |
+| `cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. | — |
+| `betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. `python betano.py` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json` |
+| `app.py` | UI Streamlit con dos pestañas. **Matchup**: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, el nivel de confianza con su motivo, y las features que más mueven la predicción. **Cartelera**: elegís un evento próximo y ves cada pelea con su predicción y la cuota de Betano ya resuelta, sin tipear nada. | — |
+| `test_app.py` | `python test_app.py`. Verifica que la predicción no dependa del orden, que la confianza salga del tramo correcto, que la cartelera y las cuotas de Betano se parseen bien, y que la app renderice con y sin cuotas. No toca la red. | — |
+
+### De dónde salen las peleas que todavía no ocurrieron
+
+ufcstats.com metió un challenge JS anti-bot en su página de eventos futuros, y el dataset
+de odds (`shortlikeafox/ultimate_ufc_dataset`) está congelado desde el 2026-04-01. La API
+pública de ESPN es la que quedó viva: JSON, sin API key. Trae el matchup pero **no la
+cuota**.
+
+La cuota la pone `betano.py`. Betano no tiene API pública, pero tampoco hace falta: el
+sitio deja el estado entero de la página embebido en el HTML como
+`window["initial_state"]`, con nombres y cuotas adentro, así que alcanza un GET por
+cartelera (cada evento de UFC es una "liga" separada para ellos). Sigue siendo scraping y
+se va a romper: cuando pase, `python betano.py` baja el estado crudo y lista lo que
+parsea. La app lo cachea 30 minutos, que es también el rate limit contra el sitio.
+
+Dos límites que no son bugs: Betano abre mercado unos días antes del evento, así que las
+carteleras lejanas aparecen sin cuota; y el matcheo de nombres es exacto tras normalizar
+acentos, con un fallback difuso (`difflib`) para los `Jr.` y los nombres compuestos. Sobre
+la cartelera del 2026-08-01 matcheó 14/14, incluidos `Uroš Medić`, `Mateusz Rębecki` y
+`Stephanie Luciano` → `Stephanie Bruna Luciano`. Si Betano no responde, la cartelera se
+muestra igual, sin cuota ni nivel de confianza.
+
+Los debutantes se listan sin predicción: sin historial en UFC no hay features que
+alimentar. Son ~30% de las peleas anunciadas, casi todas de Contender Series y de las
+carteleras europeas.
 
 ## Resultados actuales
 
@@ -83,6 +112,30 @@ distintos, la casa acierta 58.8% y el modelo 41.8%. Discrepar no es encontrar va
 la señal de que al modelo le falta información que el mercado sí tiene. De ahí sale el
 nivel de confianza que muestra la app.
 
+### Y si eso se apuesta, ¿cuánto rinde?
+
+`train.apostabilidad` lo mide directo: flat-bet de 1 unidad a **todo lado con EV positivo**
+(`p_modelo × cuota − 1 > 0`), out-of-sample, pagando con la cuota decimal real de la casa
+(vig mediano 3.6%), no con la implícita sin vig.
+
+| tramo \|modelo−mercado\| | apuestas | ROI | IC95% |
+|---|---|---|---|
+| < 0.05 (confianza alta) | 959 | **+3.66%** | [−3.93%, +11.46%] |
+| 0.05 – 0.15 | 2413 | −7.35% | [−12.27%, −2.35%] |
+| 0.15 – 0.25 | 1300 | −7.34% | [−15.17%, +0.72%] |
+| > 0.25 | 573 | −6.48% | [−19.69%, +7.35%] |
+| todos | 5245 | −5.24% | [−8.67%, −1.67%] |
+| control: siempre el favorito | 6060 | −3.35% | [−5.24%, −1.50%] |
+| control: siempre el underdog | 5486 | −6.73% | [−10.49%, −2.90%] |
+
+El único tramo que no pierde es donde el modelo **ya coincide** con la casa, y ni ahí el
+IC95% se despega de cero: es break-even con esperanza, no una ventaja probada. Es el único
+caso que la app marca como *candidata a valor*. El resto es la trampa: donde el EV del
+modelo se ve más lindo (porque se aparta del mercado) es exactamente donde pierde 7%.
+
+Subir el umbral de EV no ayuda — con EV > 5% el tramo alta cae a +1.24% sobre 348
+apuestas, y con EV > 10% a −12.82% sobre 69. Por eso la regla es EV > 0 y nada más.
+
 ## Por qué no sirve tocar los hiperparámetros
 
 Está medido: entre 50 y 800 árboles el train loss cae de 0.6371 a 0.4684 mientras el de
@@ -112,7 +165,10 @@ Las cuotas entran como feature de un segundo modelo, que convive con el que no l
 la app muestra los dos. El modelo sin odds es la opinión independiente; el de con odds
 está para ver cuánto lo mueve el historial. Ninguno le gana al mercado solo.
 
-**Lo que esto no hace:** no encuentra apuestas de valor. Está medido que la casa es mejor
-predictor, y que donde el modelo más discrepa es donde más se equivoca. Un modelo bien
-calibrado te dice cuándo tenés razón, no cuándo cobrás — apostar favoritos claros no es
-gratis, el sesgo favorito-longshot hace que las cuotas bajas estén bien pagadas.
+**Lo que esto no hace:** no encuentra apuestas de valor de forma confiable. Está medido que
+la casa es mejor predictor, que donde el modelo más discrepa es donde más se equivoca, y
+que apostar su EV positivo rinde −5.24% de ROI. Lo único que sobrevive a la medición es el
+tramo de confianza alta (+3.66%, IC95% cruzando cero), que la app marca como candidata: un
+break-even con esperanza, para stake chico y plano. Un modelo bien calibrado te dice cuándo
+tenés razón, no cuándo cobrás — apostar favoritos claros no es gratis, el sesgo
+favorito-longshot hace que las cuotas bajas estén bien pagadas.

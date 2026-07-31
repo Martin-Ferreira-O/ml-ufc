@@ -126,6 +126,69 @@ def _veredicto(p_nuevo, p_viejo, y):
     return f"{delta:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  {corte}"
 
 
+def _cuotas_con_vig(u):
+    """-> (cuota_a, cuota_b) decimales reales por pelea, alineadas a fighter_a/fighter_b.
+
+    features.MERCADO es la implicita SIN vig: sirve para predecir, no para pagar. El ROI
+    hay que medirlo contra lo que la casa realmente paga, que es entre 3 y 6% peor.
+    """
+    o = pd.read_csv(features.RAW / "ufc_odds.csv", low_memory=False)
+    o["date"] = pd.to_datetime(o["date"], errors="coerce")
+    dec = lambda x: np.where(x > 0, 1 + x / 100, 1 + 100 / np.abs(x))  # noqa: E731
+    cr, cb = dec(o["R_odds"].to_numpy(float)), dec(o["B_odds"].to_numpy(float))
+    r, b = features._norm(o["R_fighter"]), features._norm(o["B_fighter"])
+    menor = np.minimum(r, b)
+    es_r = (r == menor).to_numpy()
+    tabla = dict(zip(zip(o["date"].dt.date, menor, np.maximum(r, b)),
+                     zip(np.where(es_r, cr, cb), np.where(es_r, cb, cr))))
+
+    a, b2 = features._norm(u["fighter_a"]), features._norm(u["fighter_b"])
+    c = np.array([tabla.get(k, (np.nan, np.nan)) for k in
+                  zip(u["date"].dt.date, np.minimum(a, b2), np.maximum(a, b2))])
+    izq = a.to_numpy() <= b2.to_numpy()
+    return np.where(izq, c[:, 0], c[:, 1]), np.where(izq, c[:, 1], c[:, 0])
+
+
+def _roi(pago, rng):
+    if not len(pago):
+        return "sin apuestas"
+    bs = pago[rng.integers(0, len(pago), (2000, len(pago)))].mean(axis=1)
+    lo, hi = np.percentile(bs, [2.5, 97.5])
+    return f"{pago.mean():+7.2%}  IC95% [{lo:+.2%}, {hi:+.2%}]  n={len(pago):5d}"
+
+
+def apostabilidad(u, p_mod, p_mkt, y):
+    """Flat-bet out-of-sample por tramo de |modelo - mercado|, pagando con la cuota real.
+
+    Es lo que decide que tramo puede marcar la app como candidata: un 'EV +86%' del
+    modelo en un tramo de brecha grande no es una apuesta, es una perdida medida.
+    Si cambia el modelo hay que volver a correr esto antes de creerle a la etiqueta.
+    """
+    qa, qb = _cuotas_con_vig(u)
+    hay = np.isfinite(qa) & np.isfinite(p_mkt)
+    brecha = np.abs(p_mod - p_mkt)[hay]
+    # un lado apostable por peleador: EV = p_modelo * cuota - 1, pago = cuota-1 o -1
+    p = np.concatenate([p_mod[hay], 1 - p_mod[hay]])
+    q = np.concatenate([qa[hay], qb[hay]])
+    gana = np.concatenate([y[hay], 1 - y[hay]])
+    ev, pago = p * q - 1, np.where(gana == 1, q - 1, -1.0)
+    br = np.concatenate([brecha, brecha])
+
+    vig = 1 / qa[hay] + 1 / qb[hay] - 1
+    print(f"\nROI flat-bet sobre {hay.sum()} peleas con cuota real "
+          f"(vig mediano {np.median(vig):.1%}), apostando todo lado con EV > 0:")
+    rng = np.random.default_rng(0)
+    print(f"  {'todos':10s} {_roi(pago[ev > 0], rng)}")
+    desde = 0.0
+    for corte, nombre in ((0.05, "alta"), (0.15, "media"), (0.25, "baja"),
+                          (1.01, "muy baja")):
+        t = (ev > 0) & (br >= desde) & (br < corte)
+        print(f"  {nombre:10s} {_roi(pago[t], rng)}")
+        desde = corte
+    print(f"  {'[fav]':10s} {_roi(pago[q < 2], rng)}   (control: siempre el favorito)")
+    print(f"  {'[dog]':10s} {_roi(pago[q >= 2], rng)}   (control: siempre el underdog)")
+
+
 def main():
     df = pd.read_csv(FEATS, parse_dates=["date"])
     cols = features.FEATURES
@@ -169,8 +232,9 @@ def main():
     # --- decision: rolling-origin sobre 20 anios, no una sola ventana
     con_odds = features.FEATURES_ODDS
     acum = {m: [] for m in (*MODELOS, "con odds", "mercado")}
-    ys = []
+    ys, meta = [], []
     for tr, te in rolling_origin(df, corte_test):
+        meta.append(te.iloc[0::2][["date", "fighter_a", "fighter_b"]])
         ps = probas(entrenar(tr, cols), te, cols)
         for m in MODELOS:
             acum[m].append(ps[m])
@@ -203,6 +267,10 @@ def main():
     # la comparacion que decide si el modelo aporta algo que el mercado no tenga ya
     print("  con odds vs mercado : "
           f"{_veredicto(acum['con odds'][hay], acum['mercado'][hay], ys[hay])}")
+
+    # --- y si eso se apuesta, cuanto rinde: es lo que la app puede marcar como candidata
+    apostabilidad(pd.concat(meta, ignore_index=True), acum["blend"],
+                  acum["mercado"], ys)
 
     # --- deploy: aprenden de TODO el historial, no solo de la ventana train
     bundle = {}
