@@ -5,10 +5,8 @@ peleadores, que el nivel de confianza salga del tramo correcto, y que la app ren
 con y sin cuotas. Requiere `model.pkl` y `data/fighter_state.csv` (los genera train.py).
 """
 
-import betano
-import cartelera
-import oddsapi
-import predict
+from ufc.datos import betano, cartelera, oddsapi
+from ufc.modelo import predict
 
 A, B = "Khamzat Chimaev", "Sean Strickland"
 
@@ -251,7 +249,7 @@ def check_ledger():
     import pathlib
     import tempfile
 
-    import ledger
+    from ufc.registro import ledger
 
     res = ledger._resultados()
     real = res.iloc[-1]                      # una pelea que ya ocurrio de verdad
@@ -288,7 +286,7 @@ def check_predictores():
     import pathlib
     import tempfile
 
-    import predictores
+    from ufc.registro import predictores
 
     peleas = cartelera._parsear(CARTELERA)[0]["peleas"]        # main event primero
     evento, fecha = "UFC 999: Test", "2026-08-15"
@@ -403,8 +401,7 @@ def check_app():
 
     from streamlit.testing.v1 import AppTest
 
-    import ledger
-    import predictores
+    from ufc.registro import ledger, predictores
 
     cartelera.proximas = lambda *a, **k: cartelera._parsear(CARTELERA)  # sin red
     betano.cuotas = lambda: betano._parsear(BETANO)                     # sin red

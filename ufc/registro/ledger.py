@@ -10,16 +10,14 @@ las miles que necesita el ROI.
 """
 
 import csv
-import pathlib
 
 import numpy as np
 import pandas as pd
 
-import betano
-import features
-import predict
+from ufc import nombres, rutas
+from ufc.datos import betano
 
-LEDGER = pathlib.Path("data/ledger.csv")
+LEDGER = rutas.DATOS / "ledger.csv"
 COLS = ["visto", "evento", "fecha_evento", "a", "b", "p_a", "p_mercado",
         "cuota_a", "cuota_b", "confianza", "apuesta", "ev"]
 
@@ -47,8 +45,8 @@ def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None):
 
 def _resultados():
     """Peleas ya ocurridas: (par normalizado, fecha, clave del ganador)."""
-    r = pd.read_csv(features.RAW / "ufc_fight_results.csv")
-    e = pd.read_csv(features.RAW / "ufc_event_details.csv")
+    r = pd.read_csv(rutas.RAW / "ufc_fight_results.csv")
+    e = pd.read_csv(rutas.RAW / "ufc_event_details.csv")
     for d in (r, e):
         for c in d.columns:
             if pd.api.types.is_string_dtype(d[c]):
@@ -61,10 +59,10 @@ def _resultados():
     r = r[r["fb"].notna()]
     ganador = np.where(r["OUTCOME"] == "W/L", r["fa"], r["fb"])
     return pd.DataFrame({
-        "par": [tuple(sorted((predict._normalizar(x), predict._normalizar(y))))
+        "par": [tuple(sorted((nombres.normalizar(x), nombres.normalizar(y))))
                 for x, y in zip(r["fa"], r["fb"])],
         "fecha": r["DATE"].to_numpy(),
-        "ganador": [predict._normalizar(g) for g in ganador]})
+        "ganador": [nombres.normalizar(g) for g in ganador]})
 
 
 def _cierres(fecha_por_par):
@@ -90,7 +88,7 @@ def evaluar():
     df = pd.read_csv(LEDGER, parse_dates=["fecha_evento"])
     if df.empty:
         return df, {}
-    df["par"] = [tuple(sorted((predict._normalizar(a), predict._normalizar(b))))
+    df["par"] = [tuple(sorted((nombres.normalizar(a), nombres.normalizar(b))))
                  for a, b in zip(df["a"], df["b"])]
 
     res = _resultados()
@@ -108,7 +106,7 @@ def evaluar():
         cierre_b.append(par[1] if par else np.nan)
 
     df["gano"] = [None if g is None
-                  else "a" if g == predict._normalizar(a) else "b"
+                  else "a" if g == nombres.normalizar(a) else "b"
                   for g, a in zip(ganador, df["a"])]
     df["cierre_a"], df["cierre_b"] = cierre_a, cierre_b
 

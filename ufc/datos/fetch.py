@@ -3,15 +3,16 @@
 Ese repo refresca los datos a diario, asi que re-correr este script = datos al dia.
 
 Despues de esto van las dos fuentes externas, las dos cacheadas (solo piden lo nuevo):
-`python wiki.py` trae los reemplazos y los pesos no dados de los eventos nuevos, y
-`python sherdog.py` el record pre-UFC de los peleadores nuevos. Sin la primera, las peleas
-nuevas quedan con `reemplazo`/`peso_no_dado` en NaN; sin la segunda, los debutantes quedan
-sin su historial regional, que es justo donde el modelo no tiene nada mas.
+`python -m ufc.datos.wiki` trae los reemplazos y los pesos no dados de los eventos
+nuevos, y `python -m ufc.datos.sherdog` el record pre-UFC de los peleadores nuevos. Sin
+la primera, las peleas nuevas quedan con `reemplazo`/`peso_no_dado` en NaN; sin la
+segunda, los debutantes quedan sin su historial regional, que es justo donde el modelo
+no tiene nada mas.
 """
 
-import pathlib
-
 import requests
+
+from ufc import rutas
 
 BASE = "https://raw.githubusercontent.com/Greco1899/scrape_ufc_stats/main/"
 CSVS = [
@@ -27,7 +28,7 @@ CSVS = [
 # el resto queda NaN. Si el repo muere, el pipeline sigue andando sin este archivo.
 ODDS = ("https://raw.githubusercontent.com/shortlikeafox/ultimate_ufc_dataset/main/"
         "ufc-master.csv", "ufc_odds")
-RAW = pathlib.Path("data/raw")
+RAW = rutas.RAW
 
 
 def main():

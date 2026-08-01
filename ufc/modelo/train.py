@@ -22,7 +22,6 @@ El model.pkl final se re-entrena con todo el historial; las metricas reportadas
 vienen del modelo de split.
 """
 
-import pathlib
 import pickle
 import sys
 
@@ -35,11 +34,12 @@ from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-import features
+from ufc import rutas
+from ufc.modelo import features
 
-FEATS = pathlib.Path("data/features.csv")
-MODEL = pathlib.Path("model.pkl")
-STATE = pathlib.Path("data/fighter_state.csv")
+FEATS = rutas.DATOS / "features.csv"
+MODEL = rutas.MODELO
+STATE = rutas.DATOS / "fighter_state.csv"
 
 # early_stopping=False explicito: con 'auto' sklearn lo activa (train > 10000 filas) y
 # separa un 10% ALEATORIO. Como cada pelea esta dos veces (espejada), el gemelo de cada

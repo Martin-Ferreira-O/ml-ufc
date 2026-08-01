@@ -18,41 +18,64 @@ solo que sin esas dos cosas.
 
 ## Pipeline
 
-Correr en este orden. Total: un par de minutos.
+Correr en este orden, desde la raíz del repo. Total: un par de minutos. Van con `-m`
+porque son módulos de un paquete, no scripts sueltos.
 
 ```sh
-.venv/bin/python fetch_data.py    # descarga los datos (segundos)
-.venv/bin/python wiki.py          # reemplazos y peso no dado (cacheado: solo lo nuevo)
-.venv/bin/python sherdog.py       # record pre-UFC (cacheado: solo peleadores nuevos)
-.venv/bin/python features.py      # construye las features (~1 min)
-.venv/bin/python train.py         # entrena y evalúa (~1 min)
-.venv/bin/streamlit run app.py    # la app
+.venv/bin/python -m ufc.datos.fetch      # descarga los datos (segundos)
+.venv/bin/python -m ufc.datos.wiki       # reemplazos y peso no dado (cacheado: solo lo nuevo)
+.venv/bin/python -m ufc.datos.sherdog    # record pre-UFC (cacheado: solo peleadores nuevos)
+.venv/bin/python -m ufc.modelo.features  # construye las features (~1 min)
+.venv/bin/python -m ufc.modelo.train     # entrena y evalúa (~1 min)
+.venv/bin/streamlit run app.py           # la app
 ```
 
 O desde la terminal, sin app:
 
 ```sh
-.venv/bin/python predict.py "Khamzat Chimaev" "Sean Strickland"
-.venv/bin/python cartelera.py      # los eventos anunciados, numerados
-.venv/bin/python cartelera.py 3    # recorre el evento 3, una pelea a la vez
+.venv/bin/python -m ufc.modelo.predict "Khamzat Chimaev" "Sean Strickland"
+.venv/bin/python -m ufc.datos.cartelera      # los eventos anunciados, numerados
+.venv/bin/python -m ufc.datos.cartelera 3    # recorre el evento 3, una pelea a la vez
 ```
 
-## Qué hace cada script
+## Estructura
 
-| script | qué hace | salida |
+Cuatro carpetas, y en qué orden dependen entre sí: `ui/` → `registro/` → `datos/` →
+`modelo/`. `modelo/` no importa nada de las otras tres — es el núcleo.
+
+```
+app.py                  el armazón de Streamlit: sidebar y las cuatro pestañas
+test_app.py             la suite entera, sin red
+ufc/
+├── rutas.py            todas las rutas, ancladas al repo y no al CWD
+├── nombres.py          normalizar(): la clave canónica de un peleador
+├── datos/              lo que toca la red: fetch, wiki, sherdog, cartelera,
+│                       betano, oddsapi
+├── modelo/             el núcleo: features, train, predict
+├── registro/           lo que se persiste de nuestras predicciones: ledger,
+│                       predictores
+└── ui/                 comunes.py + una pestaña por archivo (tab_*.py)
+```
+
+Dónde va un cambio: fuente nueva → `ufc/datos/`; feature nueva → `ufc/modelo/features.py`;
+algo que se ve en pantalla → la `tab_*.py` de esa pestaña; una ruta nueva → `ufc/rutas.py`.
+
+## Qué hace cada módulo
+
+| módulo | qué hace | salida |
 |---|---|---|
-| `fetch_data.py` | baja los 6 CSVs de ufcstats.com ya scrapeados por [`Greco1899/scrape_ufc_stats`](https://github.com/Greco1899/scrape_ufc_stats), que se refrescan a diario, más las odds históricas de [`shortlikeafox/ultimate_ufc_dataset`](https://github.com/shortlikeafox/ultimate_ufc_dataset) (2010+, matchean el 95% de ese período). Re-correrlo = datos al día. | `data/raw/*.csv` |
-| `wiki.py` | Extrae de la sección *Background* del artículo de cada evento en [Wikipedia](https://en.wikipedia.org/w/api.php) quién **entró de reemplazo** y quién **no dio el peso** — la única información del pipeline que no sale del historial deportivo. Valida cada artículo contra la fecha del evento antes de creerle (el buscador de la API devuelve el evento vecino con total naturalidad) y cachea por evento, así que re-correrlo solo pide los eventos nuevos. `--autocheck` corre los casos de extracción sin tocar la red. | `data/wiki_avisos.csv`, `data/wiki_eventos.csv` |
-| `sherdog.py` | Resuelve cada peleador a su ficha de [Sherdog](https://www.sherdog.com) y extrae su **récord pre-UFC** del circuito regional, con fecha por combate — el corte anti-leakage es el debut en UFC. Valida cada ficha contra peleas de UFC ya conocidas (fecha + rival), porque el buscador devuelve homónimos; cachea por ficha, así que re-correrlo solo baja peleadores nuevos. `--autocheck` corre los casos de parseo sin red. | `data/sherdog_previo.csv` |
-| `features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo, knockdowns propios y recibidos, defensas de striking y derribo, tasa de veces finalizado, Elo promedio de los rivales), más si entró de reemplazo o no dio el peso (de `wiki.py`) y cómo ganaba y perdía antes de llegar a UFC (de `sherdog.py`). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
-| `train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal (test = últimos 2 años, validación = los 2 anteriores). Sin calibración: re-verificada como dañina con el protocolo nuevo. Decide con **rolling-origin de 20 folds (7195 peleas) + IC95% del delta pareado**, no con el delta de una sola ventana. Imprime train loss junto a val/test y una tabla de confiabilidad. El `model.pkl` final se re-entrena con todo el historial. | `model.pkl`, `data/fighter_state.csv` |
-| `predict.py` | `predict(a, b, cuotas=None, circ_a=, circ_b=) -> dict`. Sirve el mismo promedio de modelos que se evalúa, en las dos orientaciones, así el resultado no depende del orden. Con las dos cuotas agrega la probabilidad del mercado, la del modelo alimentado con ella, el nivel de confianza y los factores que mueven la predicción. `circ_a`/`circ_b` marcan reemplazo y peso no dado, que no son historial sino circunstancia de esta pelea. | — |
-| `cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. Registra el primer avistaje de cada pelea en `data/cartelera_hist.csv`, que es lo único que permite detectar reemplazos tardíos (pelea anunciada a días del evento) — justo la información que el mercado tiene y el modelo no. | `data/cartelera_hist.csv` |
-| `betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. Cada corrida exitosa deja un tick por pelea en `data/betano_hist.csv`: el histórico apertura→cierre del que sale el CLV. `python betano.py` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json`, `data/betano_hist.csv` |
-| `ledger.py` | La primera vez que una pelea aparece con cuota, la predicción queda congelada en `data/ledger.csv` (simula "apostar apenas abre el mercado"). `evaluar()` la cruza después con el resultado real y con el último tick de Betano antes del evento: ROI real de las candidatas y **CLV** (closing line value), que es el único predictor confiable de rentabilidad y converge en decenas de apuestas, no en miles. Es la pestaña **Historial** de la app. | `data/ledger.csv` |
-| `predictores.py` | Las picks de los tipsters humanos que seguís, por evento. Las que se publican como imagen las lee **Gemini con visión** si hay `GEMINI_API_KEY` en el entorno (capa gratuita; `gemini-2.5-flash-lite` alcanza) — no es OCR: en esas infografías el pick es un tilde verde sobre la cara del elegido, no texto. Para no depender del matcheo de nombres mal escritos, al modelo se le pasa la cartelera real numerada y solo devuelve el índice de la pelea y de qué lado va. `comparar()` cruza las picks con el modelo y la cuota y marca el consenso; `aciertos()` mide a cada uno contra los resultados cargados. Es la pestaña **Predictores** de la app. | `data/picks.csv`, `data/resultados.csv` |
-| `oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno (tier gratis: 500 requests/mes, la app cachea 30 min). La mediana desvigueada de varias casas es la probabilidad "verdadera"; si la mejor cuota disponible paga más que eso, la app lo marca como **línea desalineada** — la única señal de EV que no necesita que el modelo le gane a nadie. Sin key devuelve `{}` y la app sigue igual. | — |
-| `app.py` | UI Streamlit con cuatro pestañas. **Matchup**: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, la cuota mínima para que haya valor, el nivel de confianza con su motivo, y las features que más mueven la predicción. **Cartelera**: elegís un evento próximo y ves cada pelea con su predicción, la cuota de Betano ya resuelta, el método probable por división y el consenso multi-casa si hay `ODDS_API_KEY`. **Predictores**: subís la imagen con las picks de cada tipster (o las cargás a mano), y salen las tres opiniones lado a lado con el modelo y la cuota, el parlay de consenso, y el acierto histórico de cada uno. **Historial**: el forward test — cada predicción congelada, su resultado y el CLV. | — |
+| `ufc/datos/fetch.py` | baja los 6 CSVs de ufcstats.com ya scrapeados por [`Greco1899/scrape_ufc_stats`](https://github.com/Greco1899/scrape_ufc_stats), que se refrescan a diario, más las odds históricas de [`shortlikeafox/ultimate_ufc_dataset`](https://github.com/shortlikeafox/ultimate_ufc_dataset) (2010+, matchean el 95% de ese período). Re-correrlo = datos al día. | `data/raw/*.csv` |
+| `ufc/datos/wiki.py` | Extrae de la sección *Background* del artículo de cada evento en [Wikipedia](https://en.wikipedia.org/w/api.php) quién **entró de reemplazo** y quién **no dio el peso** — la única información del pipeline que no sale del historial deportivo. Valida cada artículo contra la fecha del evento antes de creerle (el buscador de la API devuelve el evento vecino con total naturalidad) y cachea por evento, así que re-correrlo solo pide los eventos nuevos. `--autocheck` corre los casos de extracción sin tocar la red. | `data/wiki_avisos.csv`, `data/wiki_eventos.csv` |
+| `ufc/datos/sherdog.py` | Resuelve cada peleador a su ficha de [Sherdog](https://www.sherdog.com) y extrae su **récord pre-UFC** del circuito regional, con fecha por combate — el corte anti-leakage es el debut en UFC. Valida cada ficha contra peleas de UFC ya conocidas (fecha + rival), porque el buscador devuelve homónimos; cachea por ficha, así que re-correrlo solo baja peleadores nuevos. `--autocheck` corre los casos de parseo sin red. | `data/sherdog_previo.csv` |
+| `ufc/modelo/features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo, knockdowns propios y recibidos, defensas de striking y derribo, tasa de veces finalizado, Elo promedio de los rivales), más si entró de reemplazo o no dio el peso (de `wiki.py`) y cómo ganaba y perdía antes de llegar a UFC (de `sherdog.py`). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
+| `ufc/modelo/train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal (test = últimos 2 años, validación = los 2 anteriores). Sin calibración: re-verificada como dañina con el protocolo nuevo. Decide con **rolling-origin de 20 folds (7195 peleas) + IC95% del delta pareado**, no con el delta de una sola ventana. Imprime train loss junto a val/test y una tabla de confiabilidad. El `data/model.pkl` final se re-entrena con todo el historial. | `data/model.pkl`, `data/fighter_state.csv` |
+| `ufc/modelo/predict.py` | `predict(a, b, cuotas=None, circ_a=, circ_b=) -> dict`. Sirve el mismo promedio de modelos que se evalúa, en las dos orientaciones, así el resultado no depende del orden. Con las dos cuotas agrega la probabilidad del mercado, la del modelo alimentado con ella, el nivel de confianza y los factores que mueven la predicción. `circ_a`/`circ_b` marcan reemplazo y peso no dado, que no son historial sino circunstancia de esta pelea. | — |
+| `ufc/datos/cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. Registra el primer avistaje de cada pelea en `data/cartelera_hist.csv`, que es lo único que permite detectar reemplazos tardíos (pelea anunciada a días del evento) — justo la información que el mercado tiene y el modelo no. | `data/cartelera_hist.csv` |
+| `ufc/datos/betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. Cada corrida exitosa deja un tick por pelea en `data/betano_hist.csv`: el histórico apertura→cierre del que sale el CLV. `python -m ufc.datos.betano` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json`, `data/betano_hist.csv` |
+| `ufc/registro/ledger.py` | La primera vez que una pelea aparece con cuota, la predicción queda congelada en `data/ledger.csv` (simula "apostar apenas abre el mercado"). `evaluar()` la cruza después con el resultado real y con el último tick de Betano antes del evento: ROI real de las candidatas y **CLV** (closing line value), que es el único predictor confiable de rentabilidad y converge en decenas de apuestas, no en miles. Es la pestaña **Historial** de la app. | `data/ledger.csv` |
+| `ufc/registro/predictores.py` | Las picks de los tipsters humanos que seguís, por evento. Las que se publican como imagen las lee **Gemini con visión** si hay `GEMINI_API_KEY` en el entorno (capa gratuita; `gemini-2.5-flash-lite` alcanza) — no es OCR: en esas infografías el pick es un tilde verde sobre la cara del elegido, no texto. Para no depender del matcheo de nombres mal escritos, al modelo se le pasa la cartelera real numerada y solo devuelve el índice de la pelea y de qué lado va. `comparar()` cruza las picks con el modelo y la cuota y marca el consenso; `aciertos()` mide a cada uno contra los resultados cargados. Es la pestaña **Predictores** de la app. | `data/picks.csv`, `data/resultados.csv` |
+| `ufc/datos/oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno (tier gratis: 500 requests/mes, la app cachea 30 min). La mediana desvigueada de varias casas es la probabilidad "verdadera"; si la mejor cuota disponible paga más que eso, la app lo marca como **línea desalineada** — la única señal de EV que no necesita que el modelo le gane a nadie. Sin key devuelve `{}` y la app sigue igual. | — |
+| `app.py` + `ufc/ui/` | UI Streamlit con cuatro pestañas, una por archivo `ufc/ui/tab_*.py`; lo que comparten (constantes de presentación y los wrappers cacheados contra ESPN, Betano y The Odds API) está en `ufc/ui/comunes.py`. **Matchup**: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, la cuota mínima para que haya valor, el nivel de confianza con su motivo, y las features que más mueven la predicción. **Cartelera**: elegís un evento próximo y ves cada pelea con su predicción, la cuota de Betano ya resuelta, el método probable por división y el consenso multi-casa si hay `ODDS_API_KEY`. **Predictores**: subís la imagen con las picks de cada tipster (o las cargás a mano), y salen las tres opiniones lado a lado con el modelo y la cuota, el parlay de consenso, y el acierto histórico de cada uno. **Historial**: el forward test — cada predicción congelada, su resultado y el CLV. | — |
 | `test_app.py` | `python test_app.py`. Verifica que la predicción no dependa del orden, que la confianza salga del tramo correcto, que la cartelera, Betano y The Odds API se parseen bien, que el archivado y el ledger congelen y evalúen (dedup, resultado, CLV), que los homónimos avisen, que reemplazo y peso no dado bajen al que los tiene sin romper la simetría, que el método sea coherente por división, que las picks de los predictores se guarden sin duplicar y que su consenso y su acierto se calculen bien, y que la app renderice con y sin cuotas. No toca la red. | — |
 
 ### De dónde salen las peleas que todavía no ocurrieron
@@ -66,7 +89,7 @@ La cuota la pone `betano.py`. Betano no tiene API pública, pero tampoco hace fa
 sitio deja el estado entero de la página embebido en el HTML como
 `window["initial_state"]`, con nombres y cuotas adentro, así que alcanza un GET por
 cartelera (cada evento de UFC es una "liga" separada para ellos). Sigue siendo scraping y
-se va a romper: cuando pase, `python betano.py` baja el estado crudo y lista lo que
+se va a romper: cuando pase, `python -m ufc.datos.betano` baja el estado crudo y lista lo que
 parsea. La app lo cachea 30 minutos, que es también el rate limit contra el sitio.
 
 Dos límites que no son bugs: Betano abre mercado unos días antes del evento, así que las
@@ -224,7 +247,7 @@ parecía real en validación (la logística sola, −0.0031 en val, +0.0023 en r
 
 ## El techo era de fuente, no de features
 
-`python train.py probar` mide bloques de features candidatas contra el modelo actual con
+`python -m ufc.modelo.train probar` mide bloques de features candidatas contra el modelo actual con
 ese mismo protocolo. Se le pasó **todo lo que quedaba sin usar en los CSVs de ufcstats**:
 el desglose de golpeo por objetivo (head/body/leg) y por posición (distance/clinch/ground)
 —las 12 columnas de `ufc_fight_stats.csv` que el pipeline venía tirando—, la granularidad

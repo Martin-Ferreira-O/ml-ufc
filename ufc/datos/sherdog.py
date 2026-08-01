@@ -20,7 +20,6 @@ Dos trampas, las dos resueltas aca:
 """
 
 import json
-import pathlib
 import re
 import sys
 import time
@@ -29,11 +28,13 @@ import unicodedata
 import pandas as pd
 import requests
 
-RAW = pathlib.Path("data/raw")
+from ufc import rutas
+
+RAW = rutas.RAW
 CACHE = RAW / "sherdog"
 IDS = CACHE / "ids.json"          # clave de nombre -> /fighter/Slug-123456
 BUSQUEDAS = CACHE / "busquedas"   # HTML del buscador, ver `_busqueda`
-OUT = pathlib.Path("data/sherdog_previo.csv")
+OUT = rutas.DATOS / "sherdog_previo.csv"
 BASE = "https://www.sherdog.com"
 # UA de navegador: con el UA por defecto de requests la ficha responde igual, pero el
 # buscador devuelve paginas vacias.

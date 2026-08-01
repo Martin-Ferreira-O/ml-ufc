@@ -10,16 +10,16 @@ alimentado con ella, y un nivel de confianza. La confianza sale de cuanto coinci
 modelo y mercado, que es lo unico que resulto predecir el error (ver CONFIANZA).
 """
 
-import pathlib
 import pickle
 import sys
-import unicodedata
 
 import numpy as np
 import pandas as pd
 
-MODEL = pathlib.Path("model.pkl")
-STATE = pathlib.Path("data/fighter_state.csv")
+from ufc import nombres, rutas
+
+MODEL = rutas.MODELO
+STATE = rutas.DATOS / "fighter_state.csv"
 
 # Umbrales sobre |p_modelo - p_mercado|, medidos con rolling-origin sobre 5773 peleas
 # (mercado desvigueado con power, 2026-07-31). Log loss del modelo por tramo:
@@ -60,19 +60,9 @@ ROI_APOSTABLE = "+1.9% IC95% [-5.6%, +9.4%] sobre 863 apuestas"
 CIRCUNSTANCIA = ("reemplazo", "peso_no_dado")
 
 
-def _normalizar(s):
-    """Minusculas, sin acentos: ESPN escribe 'Spasić' donde ufcstats escribe 'Spasic'.
-
-    Verificado sobre las 2716 filas del estado: ningun par de peleadores distintos
-    colapsa a la misma clave, asi que el indice sigue siendo unico.
-    """
-    s = unicodedata.normalize("NFKD", str(s))
-    return " ".join("".join(c for c in s if not unicodedata.combining(c)).lower().split())
-
-
 def cargar():
     estado = pd.read_csv(STATE, parse_dates=["dob", "last_date"])
-    estado["clave"] = estado["fighter"].map(_normalizar)
+    estado["clave"] = estado["fighter"].map(nombres.normalizar)
     return pickle.loads(MODEL.read_bytes()), estado.set_index("clave")
 
 
@@ -165,7 +155,7 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
     base = modelo["sin_odds"]
     filas, mezclados = [], []
     for nombre, circ in ((nombre_a, circ_a), (nombre_b, circ_b)):
-        clave = _normalizar(nombre)
+        clave = nombres.normalizar(nombre)
         if clave not in estado.index:
             raise ValueError(f"No encuentro a '{nombre}' en el dataset.")
         fila = estado.loc[clave]
@@ -214,7 +204,7 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
 
 def main():
     if len(sys.argv) not in (3, 5):
-        print('Uso: python predict.py "Peleador A" "Peleador B" [cuota_a cuota_b]')
+        print('Uso: python -m ufc.modelo.predict "Peleador A" "Peleador B" [cuota_a cuota_b]')
         sys.exit(1)
     a, b = sys.argv[1], sys.argv[2]
     cuotas = (float(sys.argv[3]), float(sys.argv[4])) if len(sys.argv) == 5 else None

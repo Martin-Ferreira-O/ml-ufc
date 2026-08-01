@@ -8,19 +8,19 @@ aplicar sus updates (torneos de los UFC 1-8: un peleador pelea dos veces el mism
 Cada pelea produce dos filas: diffs A-B y la espejada B-A con el target invertido.
 """
 
-import pathlib
 import re
 
 import numpy as np
 import pandas as pd
 
-import predict
+from ufc import rutas
+from ufc.modelo import predict
 
-RAW = pathlib.Path("data/raw")
-OUT = pathlib.Path("data/features.csv")
-AVISOS = pathlib.Path("data/wiki_avisos.csv")
-WIKI_EVENTOS = pathlib.Path("data/wiki_eventos.csv")
-PREVIO = pathlib.Path("data/sherdog_previo.csv")
+RAW = rutas.RAW
+OUT = rutas.DATOS / "features.csv"
+AVISOS = rutas.DATOS / "wiki_avisos.csv"
+WIKI_EVENTOS = rutas.DATOS / "wiki_eventos.csv"
+PREVIO = rutas.DATOS / "sherdog_previo.csv"
 K_ELO = 32
 
 # nombre -> como se calcula desde el estado previo del peleador
@@ -51,8 +51,8 @@ FEATURES = [
 CONTEXTO = ["wc_lbs", "mujer", "cinco_r"]
 
 # Candidatas EN MEDICION. Se calculan y viajan en features.csv, pero NO entran al modelo:
-# `python train.py probar` las mide de a bloques contra el baseline y solo pasan a FEATURES
-# las que dejan el IC95% del delta pareado sin tocar cero.
+# `python -m ufc.modelo.train probar` las mide de a bloques contra el baseline y solo
+# pasan a FEATURES las que dejan el IC95% del delta pareado sin tocar cero.
 #
 # La ronda anterior probo TODO lo que quedaba sin usar en los CSVs de ufcstats — mezcla de
 # golpeo por objetivo y posicion, cardio por round, calidad de las decisiones, peleas de

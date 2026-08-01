@@ -10,18 +10,17 @@ de la region UFC para sacar la lista y despues por cada liga. Son dos o tres req
 Es scraping, o sea que se va a romper: cuando pase, `cuotas()` devuelve {} y la app
 sigue andando sin cuotas. Para arreglarlo:
 
-    python betano.py           # baja el estado crudo a data/betano_raw.json y lo resume
+    python -m ufc.datos.betano   # baja el estado crudo a data/betano_raw.json y lo resume
 """
 
 import csv
 import datetime
 import difflib
 import json
-import pathlib
 
 import requests
 
-import predict
+from ufc import nombres, rutas
 
 BASE = "https://lat.betano.com"
 REGION = "188692"                                  # UFC dentro del deporte MMA
@@ -36,8 +35,8 @@ HEADERS = {
     "Accept-Language": "es-419,es;q=0.9",
     "Referer": f"{BASE}/sport/mma/",
 }
-CRUDO = pathlib.Path("data/betano_raw.json")
-HIST = pathlib.Path("data/betano_hist.csv")
+CRUDO = rutas.DATOS / "betano_raw.json"
+HIST = rutas.DATOS / "betano_hist.csv"
 
 # Errores esperables de una fuente que no controlamos: red caida, HTML sin el ancla,
 # JSON cortado, o que le hayan cambiado la forma.
@@ -95,12 +94,12 @@ def _parsear(estado):
         sels = m["selections"]
         if len(sels) != 2:
             continue
-        nombres = [predict._normalizar(s.get("name", "")) for s in sels]
+        lados = [nombres.normalizar(s.get("name", "")) for s in sels]
         precios = [_precio(s) for s in sels]
-        if not all(nombres) or not all(precios) or nombres[0] == nombres[1]:
+        if not all(lados) or not all(precios) or lados[0] == lados[1]:
             continue
-        par = dict(zip(nombres, precios))
-        clave = tuple(sorted(nombres))
+        par = dict(zip(lados, precios))
+        clave = tuple(sorted(lados))
         # El primero gana: el moneyline viene antes que los mercados derivados.
         tabla.setdefault(clave, (par[clave[0]], par[clave[1]]))
     return tabla
@@ -155,7 +154,7 @@ def _aproximado(tabla, ordenadas):
 
 def buscar(tabla, a, b):
     """(cuota_a, cuota_b) en el orden pedido, o None si la pelea no esta en Betano."""
-    ka, kb = predict._normalizar(a), predict._normalizar(b)
+    ka, kb = nombres.normalizar(a), nombres.normalizar(b)
     ordenadas = tuple(sorted((ka, kb)))
     par = tabla.get(ordenadas) or _aproximado(tabla, ordenadas)
     if par is None:

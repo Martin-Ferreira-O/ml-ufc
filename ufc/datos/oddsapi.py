@@ -15,8 +15,9 @@ import os
 import numpy as np
 import requests
 
-import betano
-import predict
+from ufc import nombres
+from ufc.datos import betano
+from ufc.modelo import predict
 
 API = "https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/odds"
 ROTO = (requests.RequestException, ValueError, KeyError, TypeError)
@@ -26,8 +27,8 @@ def _parsear(eventos):
     """-> {(x, y) ordenadas: {"p_x", "mejor": (cx, cy), "casas"}} por pelea."""
     tabla = {}
     for e in eventos:
-        ka = predict._normalizar(e.get("home_team", ""))
-        kb = predict._normalizar(e.get("away_team", ""))
+        ka = nombres.normalizar(e.get("home_team", ""))
+        kb = nombres.normalizar(e.get("away_team", ""))
         if not ka or not kb or ka == kb:
             continue
         x, y = sorted((ka, kb))
@@ -36,7 +37,7 @@ def _parsear(eventos):
             for m in casa.get("markets", []):
                 if m.get("key") != "h2h":
                     continue
-                precios = {predict._normalizar(o.get("name", "")): o.get("price")
+                precios = {nombres.normalizar(o.get("name", "")): o.get("price")
                            for o in m.get("outcomes", [])}
                 try:
                     cx, cy = float(precios[x]), float(precios[y])
@@ -68,7 +69,7 @@ def cuotas():
 
 def buscar(tabla, a, b):
     """El consenso orientado al orden pedido, o None. Mismo matcheo que Betano."""
-    ka, kb = predict._normalizar(a), predict._normalizar(b)
+    ka, kb = nombres.normalizar(a), nombres.normalizar(b)
     ordenadas = tuple(sorted((ka, kb)))
     fila = tabla.get(ordenadas) or betano._aproximado(tabla, ordenadas)
     if fila is None:

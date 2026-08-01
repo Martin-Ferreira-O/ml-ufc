@@ -7,23 +7,22 @@ challenge JS anti-bot en su pagina de eventos futuros, y el dataset de odds
 ESPN no da cuotas, asi que aca no hay nivel de confianza: para eso hay que ingresar la
 cuota a mano en la app o en predict.py.
 
-    python cartelera.py        # lista los eventos proximos
-    python cartelera.py 3      # recorre el evento 3, una pelea a la vez
+    python -m ufc.datos.cartelera     # lista los eventos proximos
+    python -m ufc.datos.cartelera 3   # recorre el evento 3, una pelea a la vez
 """
 
 import csv
 import datetime
-import pathlib
 import sys
 
 import requests
 
-import features
-import predict
+from ufc import rutas
+from ufc.modelo import features, predict
 
 API = "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard"
 SIN_RIVAL = {"tba", "opponent tba"}
-HIST = pathlib.Path("data/cartelera_hist.csv")
+HIST = rutas.DATOS / "cartelera_hist.csv"
 
 
 def _parsear(payload):
@@ -104,7 +103,7 @@ def main():
         print("Eventos proximos:\n")
         for i, e in enumerate(eventos, 1):
             print(f"  {i:2d}  {e['fecha']}  {e['evento']}  ({len(e['peleas'])} peleas)")
-        print(f"\n  python {sys.argv[0]} <n>   para recorrer uno")
+        print("\n  python -m ufc.datos.cartelera <n>   para recorrer uno")
         return
 
     i = int(sys.argv[1])

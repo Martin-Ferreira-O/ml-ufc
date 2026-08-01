@@ -19,7 +19,6 @@ Dos trampas, las dos resueltas aca:
     evento, asi que alcanza con ver que se dice cerca de cada apellido conocido.
 """
 
-import pathlib
 import re
 import sys
 import time
@@ -28,14 +27,16 @@ import numpy as np
 import pandas as pd
 import requests
 
-RAW = pathlib.Path("data/raw")
+from ufc import rutas
+
+RAW = rutas.RAW
 CACHE = RAW / "wiki"
-OUT = pathlib.Path("data/wiki_avisos.csv")
+OUT = rutas.DATOS / "wiki_avisos.csv"
 # Que eventos tienen articulo validado. Es imprescindible aparte de los avisos: en un
 # evento con articulo, "el peleador no aparece" significa 0 (no hubo aviso); en uno sin
 # articulo significa NaN (no sabemos). Sin esta lista las dos cosas se confunden y la
 # feature le pone "todo normal" a media base.
-EVENTOS = pathlib.Path("data/wiki_eventos.csv")
+EVENTOS = rutas.DATOS / "wiki_eventos.csv"
 API = "https://en.wikipedia.org/w/api.php"
 UA = "ml-ufc/0.1 (fight-outcome research; https://github.com/)"
 PAUSA = 0.5   # cortesia con una API gratis y sin key. Con 0.15 devuelve 429.

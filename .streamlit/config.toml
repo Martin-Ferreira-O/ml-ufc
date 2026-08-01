@@ -1,0 +1,30 @@
+# Tema oscuro. `base = "dark"` la deja fija en oscuro a proposito: es una app que se mira
+# de noche, la vispera de un evento, y el toggle claro/oscuro solo aparece si estan
+# definidas [theme.light] y [theme.dark] las dos.
+[theme]
+base = "dark"
+primaryColor = "#D20A0A"
+backgroundColor = "#0E1013"
+secondaryBackgroundColor = "#171A1F"
+textColor = "#E8EAED"
+borderColor = "#2A2F37"
+linkColor = "#FF5A5A"
+codeBackgroundColor = "#171A1F"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+baseRadius = "10px"
+buttonRadius = "8px"
+linkUnderline = false
+showWidgetBorder = true
+# Los que usa st.success / st.warning / st.error, que es de donde sale todo el color
+# semantico de la app (el dispatch ESTILO en app.py).
+greenColor = "#22C55E"
+redColor = "#EF4444"
+orangeColor = "#F59E0B"
+chartCategoricalColors = ["#D20A0A", "#F59E0B", "#22C55E", "#3B82F6", "#A855F7", "#EC4899", "#94A3B8"]
+dataframeHeaderBackgroundColor = "#171A1F"
+
+[theme.sidebar]
+backgroundColor = "#0A0C0F"
+secondaryBackgroundColor = "#171A1F"
+borderColor = "#2A2F37"

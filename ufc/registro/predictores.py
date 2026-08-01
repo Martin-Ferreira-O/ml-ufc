@@ -16,13 +16,14 @@ noche del evento.
 
 import json
 import os
-import pathlib
 
 import numpy as np
 import pandas as pd
 
-PICKS = pathlib.Path("data/picks.csv")
-RESULTADOS = pathlib.Path("data/resultados.csv")
+from ufc import rutas
+
+PICKS = rutas.DATOS / "picks.csv"
+RESULTADOS = rutas.DATOS / "resultados.csv"
 COLS = ["predictor", "evento", "fecha_evento", "a", "b", "pick", "metodo", "round",
         "confianza"]
 COLS_RES = ["evento", "a", "b", "ganador"]
@@ -76,7 +77,7 @@ aparezcan, omitilas.
 """
 
 
-def cargar_env(archivo=pathlib.Path(".env")):
+def cargar_env(archivo=rutas.RAIZ / ".env"):
     """La key vive en .env: leer una linea `CLAVE=valor` no justifica python-dotenv.
 
     ponytail: sin comillas multilinea ni `export`. Si el .env crece, python-dotenv.
