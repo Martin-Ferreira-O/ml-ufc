@@ -283,6 +283,99 @@ def check_ledger():
         ledger.LEDGER, betano.HIST = led, hist
 
 
+def check_predictores():
+    """Picks de tipsters: round-trip del csv, senal de consenso y conteo de aciertos."""
+    import pathlib
+    import tempfile
+
+    import predictores
+
+    peleas = cartelera._parsear(CARTELERA)[0]["peleas"]        # main event primero
+    evento, fecha = "UFC 999: Test", "2026-08-15"
+    # el modelo favorece a A en la primera pelea, y la tercera es un debut (sin p_a)
+    preds = [{"p_a": 0.70, "ev_a": 0.05, "ev_b": -0.30}, {"p_a": 0.40},
+             {"error": "sin historial en UFC"}]
+    cuotas = [(1.50, 2.60), (2.20, 1.65), None]
+
+    # la key vive en .env: sin esto el uploader de imagenes no aparece nunca
+    import os
+    with tempfile.TemporaryDirectory() as d:
+        env = pathlib.Path(d) / ".env"
+        env.write_text('# comentario\nGEMINI_API_KEY="secreto"\nVACIA\n')
+        os.environ.pop("GEMINI_API_KEY", None)
+        predictores.cargar_env(env)
+        assert os.environ["GEMINI_API_KEY"] == "secreto", os.environ.get("GEMINI_API_KEY")
+        assert predictores.hay_api()
+
+    picks, res = predictores.PICKS, predictores.RESULTADOS
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            predictores.PICKS = pathlib.Path(d) / "picks.csv"
+            predictores.RESULTADOS = pathlib.Path(d) / "resultados.csv"
+            # los tres coinciden en las dos primeras; el tercero se abre en la tercera
+            for quien, lados in (("uno", "aaa"), ("dos", "aaa"), ("tres", "aab")):
+                predictores.guardar(
+                    [[quien, evento, fecha, p["a"], p["b"], lado, "", None, None]
+                     for p, lado in zip(peleas, lados)], evento, quien)
+            # re-guardar corrige en vez de duplicar: mismas picks, ahora con metodo
+            predictores.guardar(
+                [["uno", evento, fecha, p["a"], p["b"], "a", "ko", 1, 0.8]
+                 for p in peleas], evento, "uno")
+            guardadas = predictores.leer(evento)
+            assert len(guardadas) == 9, guardadas
+            assert (guardadas["predictor"] == "uno").sum() == 3, guardadas
+            assert set(guardadas[guardadas["predictor"] == "uno"]["metodo"]) == {"ko"}
+
+            comp = predictores.comparar(peleas, guardadas, preds, cuotas)
+            # LOCK: los tres del mismo lado y el modelo tambien. CONTRA: coinciden pero
+            # el modelo prefiere al otro (p_a = 0.40). SPLIT: no coinciden entre ellos.
+            assert list(comp["senal"]) == [predictores.LOCK, predictores.CONTRA,
+                                           predictores.SPLIT], list(comp["senal"])
+            assert comp["consenso"].iloc[0] == peleas[0]["a"], comp
+            assert comp["cuota"].iloc[0] == 1.50 and comp["ev"].iloc[0] == 0.05, comp
+            assert comp["modelo"].iloc[1] == peleas[1]["b"], comp
+            lados_parlay, cuota_parlay = predictores.parlay(comp)
+            assert lados_parlay == [peleas[0]["a"]] and cuota_parlay == 1.50, comp
+            # y si coinciden en el debut, el consenso vale igual: no hay modelo que opinar
+            solos = guardadas.assign(pick="a")
+            senal_debut = predictores.comparar(peleas, solos, preds, cuotas)["senal"]
+            assert senal_debut.iloc[2] == predictores.SIN_MODELO, list(senal_debut)
+
+            # el round-trip que hace la app al reabrir un predictor ya cargado: csv ->
+            # tabla del editor -> csv. Un metodo vacio vuelve del csv como float NaN, y
+            # NaN es truthy: sin normalizarlo se guardaba el string "nan".
+            solo_dos = guardadas[guardadas["predictor"] == "dos"]
+            tabla_editor = predictores.tabla_picks(peleas, solo_dos, [])
+            assert list(tabla_editor["ganador"]) == [p["a"] for p in peleas], tabla_editor
+            assert tabla_editor["metodo"].isna().all(), tabla_editor
+            devueltas = predictores.filas_picks(tabla_editor, peleas, evento, fecha, "dos")
+            assert [f[5] for f in devueltas] == ["a", "a", "a"], devueltas
+            assert [f[6] for f in devueltas] == ["", "", ""], devueltas
+            # y una pelea sin ganador elegido simplemente no se guarda
+            sin_pick = tabla_editor.copy()
+            sin_pick.loc[0, "ganador"] = None
+            assert len(predictores.filas_picks(sin_pick, peleas, evento, fecha, "dos")) == 2
+
+            # resultados: gana "a" la primera y "b" las otras dos
+            predictores.guardar_resultados(
+                [[evento, p["a"], p["b"], lado] for p, lado in zip(peleas, "abb")],
+                evento)
+            tabla = predictores.aciertos().set_index("predictor")
+            # "tres" es el unico que acerto el upset de la tercera
+            assert tabla.loc["tres", "aciertos"] == 2, tabla
+            assert (tabla["total"] == 3).all(), tabla
+            assert tabla.index[0] == "tres", tabla       # ordenado por acierto
+            # y la tabla de resultados se rearma con lo ya cargado, no en blanco
+            recargada = predictores.tabla_resultados(peleas,
+                                                     predictores.leer_resultados(evento))
+            assert list(recargada["ganador"]) == [peleas[0]["a"], peleas[1]["b"],
+                                                  peleas[2]["b"]], recargada
+            por_evento = predictores.aciertos(por_evento=True)
+            assert set(por_evento["evento"]) == {evento}, por_evento
+    finally:
+        predictores.PICKS, predictores.RESULTADOS = picks, res
+
+
 def check_cartelera():
     """Parseo de la cartelera y prediccion de peleas que pueden no ser predecibles."""
     eventos = cartelera._parsear(CARTELERA)
@@ -311,11 +404,20 @@ def check_app():
     from streamlit.testing.v1 import AppTest
 
     import ledger
+    import predictores
 
     cartelera.proximas = lambda *a, **k: cartelera._parsear(CARTELERA)  # sin red
     betano.cuotas = lambda: betano._parsear(BETANO)                     # sin red
     oddsapi.cuotas = lambda: oddsapi._parsear(ODDSAPI)                  # sin red
-    ledger.LEDGER = pathlib.Path(tempfile.mkdtemp()) / "ledger.csv"     # sin ensuciar
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    ledger.LEDGER = tmp / "ledger.csv"                                  # sin ensuciar
+    predictores.PICKS, predictores.RESULTADOS = tmp / "p.csv", tmp / "r.csv"
+    # con picks cargadas se renderiza la comparativa, que arma una columna por predictor
+    evento = cartelera._parsear(CARTELERA)[0]
+    for quien in ("uno", "dos"):
+        predictores.guardar([[quien, evento["evento"], evento["fecha"], p["a"], p["b"],
+                              "a", "", None, None] for p in evento["peleas"]],
+                            evento["evento"], quien)
 
     for cuotas in ((1.35, 3.20), None):
         at = AppTest.from_file("app.py", default_timeout=120).run()
@@ -349,6 +451,9 @@ def check_app():
         # el consenso multi-casa se muestra para la pelea que The Odds API cotiza
         consensos = [c.value for c in at.caption if c.value.startswith("Consenso")]
         assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
+        # la comparativa arma una columna por predictor: es lo unico dinamico de la tabla
+        columnas = [set(d.value.columns) for d in at.dataframe]
+        assert any({"uno", "dos", "senal"} <= c for c in columnas), columnas
         # el metodo por division aparece en cada pelea de la cartelera, debut incluido
         if "metodo" in predict.cargar()[0]:
             metodos = [c.value for c in at.caption
@@ -360,6 +465,6 @@ if __name__ == "__main__":
     for check in (check_betano, check_simetria, check_circunstancia, check_confianza,
                   check_apuesta,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
-                  check_ledger, check_cartelera, check_app):
+                  check_ledger, check_predictores, check_cartelera, check_app):
         check()
         print(f"ok  {check.__name__}")

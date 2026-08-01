@@ -199,10 +199,15 @@ def _links(html):
 
 def resolver(sesion, nombre, ufc, ids):
     """-> (ruta, html) de la ficha validada, o (None, None)."""
-    cands = []
-    if _clave(nombre) in ids:
-        cands.append(ids[_clave(nombre)])
-    for ruta in cands + _buscar(sesion, nombre):
+    def candidatos():
+        """Perezoso a proposito: `cands + _buscar(...)` evaluaba el buscador SIEMPRE, aun
+        cuando el id cacheado validaba en la primera vuelta. Era una request por peleador
+        del catalogo con el cache entero en disco — el crawl "incremental" de dos horas."""
+        if _clave(nombre) in ids:
+            yield ids[_clave(nombre)]
+        yield from _buscar(sesion, nombre)
+
+    for ruta in candidatos():
         html = _ficha(sesion, ruta)
         hist = historial(html)
         if hist and _es_el(hist, ufc):

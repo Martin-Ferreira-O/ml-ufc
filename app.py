@@ -13,6 +13,7 @@ import cartelera
 import ledger
 import oddsapi
 import predict
+import predictores
 
 # Los nombres internos de las features no le dicen nada a nadie, y el punto de mostrar
 # los factores es que se entiendan.
@@ -61,6 +62,25 @@ COLUMNAS = {
         help="Cuota congelada vs cuota de cierre. Positivo = le ganaste al cierre."),
     "retorno": st.column_config.NumberColumn(
         "Retorno", format="%+.2f u", help="Flat-bet de 1 unidad en ese lado."),
+}
+# La comparativa: las columnas fijas. Las de cada predictor se agregan al vuelo, porque
+# dependen de quien haya subido picks para ese evento.
+COLUMNAS_COMP = {
+    "pelea": st.column_config.TextColumn("Pelea", pinned=True),
+    "modelo": st.column_config.TextColumn(
+        "Modelo", help="El favorito del modelo. Vacío en un debut: no tiene historial."),
+    "p_modelo": st.column_config.ProgressColumn(
+        "Prob.", format="percent", min_value=0, max_value=1,
+        help="Cuánta probabilidad le da el modelo a su propio favorito."),
+    "consenso": st.column_config.TextColumn(
+        "Consenso", help="El peleador que eligieron todos los predictores. Vacío si "
+                         "hay desacuerdo o si a alguno le falta la pick."),
+    "cuota": st.column_config.NumberColumn(
+        "Cuota", format="%.2f", help="La cuota de Betano del lado del consenso."),
+    "ev": st.column_config.NumberColumn(
+        "EV modelo", format="percent",
+        help="EV que le da el modelo al lado del consenso (probabilidad × cuota − 1)."),
+    "senal": st.column_config.TextColumn("Señal"),
 }
 
 # El pipeline del README, en orden. fetch baja los CSVs, wiki y sherdog los completan,
@@ -158,6 +178,13 @@ def _historial(df):
     })
 
 
+@st.cache_data(show_spinner="Leyendo la imagen…")
+def _leer_imagen(datos, mime, pares):
+    """La imagen del tipster -> sus picks. Cacheada porque si no, cada tecla que tocás
+    en la tabla de abajo es un rerun, y cada rerun sería otro llamado a la API."""
+    return predictores.extraer(datos, mime, [{"a": a, "b": b} for a, b in pares])
+
+
 with st.sidebar:
     st.subheader("Datos")
     st.caption("El pipeline completo, en orden. Tarda unos minutos: wiki y sherdog "
@@ -182,8 +209,8 @@ with st.sidebar:
         st.cache_resource.clear()
 
 (modelo, estado), nombres = _cargar()
-tab_matchup, tab_cartelera, tab_historial = st.tabs(["Matchup", "Cartelera",
-                                                     "Historial"])
+tab_matchup, tab_cartelera, tab_predictores, tab_historial = st.tabs(
+    ["Matchup", "Cartelera", "Predictores", "Historial"])
 
 with tab_matchup:
     with st.form("matchup", border=False):
@@ -295,6 +322,141 @@ with tab_cartelera:
                     ledger.registrar(evento["evento"], evento["fecha"],
                                      pelea["a"], pelea["b"], r, cuotas)
                 _resultado(pelea["a"], pelea["b"], r, cuotas)
+
+with tab_predictores:
+    st.caption("Las picks de los tipsters que seguís, cruzadas con el modelo y con la "
+               "cuota. El modelo pierde contra la línea de cierre y ellos vienen "
+               "acertando 10-14 de 14, así que acá el modelo es el que desempata, no el "
+               "que decide: lo que se marca es dónde coinciden todos.")
+    eventos_p = _carteleras()
+    if not eventos_p:
+        st.warning("No hay carteleras anunciadas (o la API de ESPN no respondió).")
+    else:
+        evento_p = st.selectbox("Evento", eventos_p, key="evento_predictores",
+                                format_func=lambda e: f"{e['fecha']} — {e['evento']}")
+        peleas_p = evento_p["peleas"]
+        pares_p = tuple((p["a"], p["b"]) for p in peleas_p)
+        nombres_p = [n for par in pares_p for n in par]   # opciones de los dos editores
+        tabla_p = _cuotas_betano()
+        cuotas_p = [betano.buscar(tabla_p, p["a"], p["b"]) for p in peleas_p]
+        preds_p = [cartelera.predecir(p, modelo, estado, c)
+                   for p, c in zip(peleas_p, cuotas_p)]
+        picks_ev = predictores.leer(evento_p["evento"])
+
+        st.subheader("Cargar picks", divider="gray")
+        conocidos = sorted(predictores.leer()["predictor"].unique())
+        # un desplegable vacio no se ve como algo donde se pueda escribir: hasta que
+        # haya alguno guardado, el input suelto es mas claro
+        quien = st.selectbox("Predictor", conocidos, index=None, accept_new_options=True,
+                             placeholder="Elegí uno o escribí un nombre nuevo…",
+                             help="Escribí el nombre y presioná Enter para agregar uno "
+                                  "que todavía no exista.") if conocidos else \
+            st.text_input("Predictor", placeholder="Nombre del tipster…",
+                          help="El primero: escribilo y cargá sus picks abajo.")
+        if not quien:
+            st.caption("Elegí de quién son las picks que vas a cargar.")
+        else:
+            leidas = []
+            if predictores.hay_api():
+                imagen = st.file_uploader(
+                    f"Imagen con las picks de {quien}", type=["png", "jpg", "jpeg", "webp"],
+                    help="La infografía o la tabla tal cual la publica. Se lee con "
+                         "Gemini y podés corregir lo que salga mal antes de guardar.")
+                if imagen:
+                    leidas = _leer_imagen(imagen.getvalue(), imagen.type, pares_p)
+                    if not leidas:
+                        st.warning("No se reconoció ninguna pelea de esta cartelera en "
+                                   "la imagen. Cargalas a mano abajo.")
+            else:
+                st.caption("Sin `GEMINI_API_KEY` en el entorno no se pueden leer "
+                           "imágenes: cargá las picks a mano.")
+            guardadas = picks_ev[picks_ev["predictor"] == quien] if len(picks_ev) \
+                else picks_ev
+            if len(guardadas):
+                st.caption(f"{quien} ya tiene picks guardadas para este evento: se "
+                           "muestran esas. Editá y volvé a guardar para corregirlas.")
+            editado = st.data_editor(
+                predictores.tabla_picks(peleas_p, guardadas, leidas), hide_index=True,
+                key=f"picks_{evento_p['evento']}_{quien}",
+                column_config={
+                    "pelea": st.column_config.TextColumn("Pelea", disabled=True,
+                                                         pinned=True),
+                    "ganador": st.column_config.SelectboxColumn(
+                        "Gana", options=nombres_p,
+                        help="Dejalo vacío si no dio pick para esa pelea."),
+                    "metodo": st.column_config.SelectboxColumn(
+                        "Método", options=predictores.METODOS,
+                        help="ko, sub o dec. Vacío si no lo dijo."),
+                    "round": st.column_config.NumberColumn("Round", min_value=1,
+                                                           max_value=5, step=1),
+                    "confianza": st.column_config.NumberColumn(
+                        "Confianza", format="percent", min_value=0.0, max_value=1.0,
+                        step=0.01, help="Si publica un porcentaje. 78% se carga 0.78."),
+                })
+            if st.button(f"Guardar picks de {quien}", type="primary",
+                         icon=":material/save:"):
+                predictores.guardar(
+                    predictores.filas_picks(editado, peleas_p, evento_p["evento"],
+                                            evento_p["fecha"], quien),
+                    evento_p["evento"], quien)
+                st.rerun()
+
+        st.subheader("Comparativa", divider="gray")
+        if not len(picks_ev):
+            st.caption("Todavía no hay picks cargadas para este evento.")
+        else:
+            comp = predictores.comparar(peleas_p, picks_ev, preds_p, cuotas_p)
+            st.dataframe(comp, hide_index=True, column_config=COLUMNAS_COMP)
+            lados, cuota_parlay = predictores.parlay(comp)
+            if lados:
+                st.success(f"**Parlay de consenso: {' + '.join(lados)} — paga "
+                           f"{cuota_parlay:.2f}.** Las peleas donde coinciden todos los "
+                           "predictores y el modelo. Ojo: una combinada de N peleas "
+                           "necesita acertar las N, y el margen de la casa se multiplica "
+                           "igual que la cuota.")
+            else:
+                st.caption("No hay ninguna pelea con consenso total más modelo a favor "
+                           "y cuota publicada, así que no hay parlay que sugerir.")
+
+        st.subheader("Resultados y acierto", divider="gray")
+        st.caption("Cargá quién ganó después del evento y se calcula el acierto de cada "
+                   "uno. Es a mano a propósito: los resultados de ufcstats recién "
+                   "aparecen cuando corrés el pipeline.")
+        res_ev = predictores.leer_resultados(evento_p["evento"])
+        editado_res = st.data_editor(
+            predictores.tabla_resultados(peleas_p, res_ev), hide_index=True,
+            key=f"res_{evento_p['evento']}",
+            column_config={
+                "pelea": st.column_config.TextColumn("Pelea", disabled=True, pinned=True),
+                "ganador": st.column_config.SelectboxColumn(
+                    "Ganó", options=nombres_p),
+            })
+        if st.button("Guardar resultados", icon=":material/save:"):
+            predictores.guardar_resultados(
+                predictores.filas_resultados(editado_res, peleas_p, evento_p["evento"]),
+                evento_p["evento"])
+            st.rerun()
+
+        tabla_aciertos = predictores.aciertos()
+        if not len(tabla_aciertos):
+            st.caption("El acierto aparece cuando haya picks y resultados cargados del "
+                       "mismo evento.")
+        else:
+            with st.container(horizontal=True):
+                for _, fila in tabla_aciertos.iterrows():
+                    st.metric(fila["predictor"], f"{fila['acierto']:.0%}", border=True,
+                              help=f"{fila['aciertos']} de {fila['total']} peleas "
+                                   "acertadas, sumando todos los eventos cargados.")
+            st.dataframe(predictores.aciertos(por_evento=True), hide_index=True,
+                         column_config={
+                             "predictor": st.column_config.TextColumn("Predictor",
+                                                                      pinned=True),
+                             "evento": st.column_config.TextColumn("Evento"),
+                             "aciertos": st.column_config.NumberColumn("Aciertos"),
+                             "total": st.column_config.NumberColumn("Peleas"),
+                             "acierto": st.column_config.ProgressColumn(
+                                 "%", format="percent", min_value=0, max_value=1),
+                         })
 
 with tab_historial:
     st.caption("Cada pelea que apareció con cuota queda congelada acá con la predicción "
