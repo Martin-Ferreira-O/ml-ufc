@@ -96,6 +96,25 @@ def check_simetria():
     assert ida["confianza"] == vuelta["confianza"]
 
 
+def check_circunstancia():
+    """Reemplazo y peso no dado: bajan al que los tiene, y no rompen la simetria.
+
+    Es lo que se rompe en silencio si alguien reordena `predict.CIRCUNSTANCIA` o
+    `features.FEATURES`: la prediccion sigue saliendo, con el peso en la feature
+    equivocada. El signo del efecto esta medido (39% y 41% de winrate contra 50%).
+    """
+    modelo, estado = predict.cargar()
+    normal = predict.predict(A, B, modelo, estado)["p_a"]
+    for i, etiqueta in enumerate(predict.CIRCUNSTANCIA):
+        circ = tuple(1.0 if j == i else 0.0 for j in range(len(predict.CIRCUNSTANCIA)))
+        peor = predict.predict(A, B, modelo, estado, circ_a=circ)["p_a"]
+        mejor = predict.predict(A, B, modelo, estado, circ_b=circ)["p_a"]
+        assert peor < normal < mejor, (etiqueta, peor, normal, mejor)
+        # espejar la pelea y la circunstancia tiene que dar exactamente el complemento
+        inv = predict.predict(B, A, modelo, estado, circ_b=circ)["p_a"]
+        assert abs(peor - (1 - inv)) < 1e-9, (etiqueta, peor, inv)
+
+
 def check_confianza():
     """El nivel sale de |modelo - mercado|, asi que cuotas extremas dan confianza baja."""
     modelo, estado = predict.cargar()
@@ -338,7 +357,8 @@ def check_app():
 
 
 if __name__ == "__main__":
-    for check in (check_betano, check_simetria, check_confianza, check_apuesta,
+    for check in (check_betano, check_simetria, check_circunstancia, check_confianza,
+                  check_apuesta,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
                   check_ledger, check_cartelera, check_app):
         check()

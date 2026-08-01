@@ -1,5 +1,9 @@
 """App Streamlit: el modelo, el mercado, y cuánto confiar en la diferencia."""
 
+import pathlib
+import subprocess
+import sys
+
 import pandas as pd
 import requests
 import streamlit as st
@@ -58,6 +62,11 @@ COLUMNAS = {
     "retorno": st.column_config.NumberColumn(
         "Retorno", format="%+.2f u", help="Flat-bet de 1 unidad en ese lado."),
 }
+
+# El pipeline del README, en orden. fetch baja los CSVs, wiki y sherdog los completan,
+# features construye la tabla y train re-entrena el modelo que la app carga.
+PIPELINE = ["fetch_data.py", "wiki.py", "sherdog.py", "features.py", "train.py"]
+RAIZ = pathlib.Path(__file__).parent
 
 st.set_page_config(page_title="Predictor UFC", page_icon=":material/sports_mma:")
 st.title("Predictor de peleas UFC")
@@ -149,6 +158,29 @@ def _historial(df):
     })
 
 
+with st.sidebar:
+    st.subheader("Datos")
+    st.caption("El pipeline completo, en orden. Tarda unos minutos: wiki y sherdog "
+               "están cacheados y solo piden lo nuevo, features y train no.")
+    if st.button("Actualizar y re-entrenar", icon=":material/refresh:"):
+        with st.status("Actualizando…", expanded=True) as estado_run:
+            for script in PIPELINE:
+                st.write(f"`{script}`")
+                # -u: sin esto Python bufferea la salida y el script parece colgado.
+                p = subprocess.Popen([sys.executable, "-u", script], cwd=RAIZ,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True)
+                hueco, lineas = st.empty(), []
+                for linea in p.stdout:
+                    lineas.append(linea.rstrip())
+                    hueco.code("\n".join(lineas[-12:]))
+                if p.wait():
+                    estado_run.update(label=f"Falló {script}", state="error")
+                    st.stop()
+            estado_run.update(label="Listo — modelo re-entrenado", state="complete")
+        st.cache_data.clear()
+        st.cache_resource.clear()
+
 (modelo, estado), nombres = _cargar()
 tab_matchup, tab_cartelera, tab_historial = st.tabs(["Matchup", "Cartelera",
                                                      "Historial"])
@@ -167,6 +199,15 @@ with tab_matchup:
                                       step=0.05, placeholder="ej. 2.60")
         st.caption("Sin las dos cuotas no hay nivel de confianza: la coincidencia con el "
                    "mercado es lo único que resultó predecir cuándo el modelo se equivoca.")
+        with st.container(horizontal=True):
+            ree_a = st.checkbox("A entró de reemplazo")
+            peso_a = st.checkbox("A no dio el peso")
+            ree_b = st.checkbox("B entró de reemplazo")
+            peso_b = st.checkbox("B no dio el peso")
+        st.caption("Circunstancias de esta pelea, no del historial — el modelo no puede "
+                   "deducirlas y son noticia pública. Medido sobre 8639 peleas: el que "
+                   "entra de reemplazo gana el 39% y el que no da el peso el 41%, contra "
+                   "50% de base.")
         enviado = st.form_submit_button("Predecir", type="primary",
                                         icon=":material/query_stats:")
 
@@ -177,7 +218,8 @@ with tab_matchup:
             st.warning("Elegí dos peleadores distintos.")
         else:
             cuotas = (cuota_a, cuota_b) if cuota_a and cuota_b else None
-            r = predict.predict(a, b, modelo, estado, cuotas=cuotas)
+            r = predict.predict(a, b, modelo, estado, cuotas=cuotas,
+                                circ_a=(ree_a, peso_a), circ_b=(ree_b, peso_b))
 
             with st.container(border=True):
                 st.subheader(f"{a} vs {b}", divider="gray")

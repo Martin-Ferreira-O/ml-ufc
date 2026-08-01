@@ -24,6 +24,7 @@ vienen del modelo de split.
 
 import pathlib
 import pickle
+import sys
 
 import numpy as np
 import pandas as pd
@@ -73,17 +74,63 @@ def entrenar(d, cols):
     return hgb, _lineal().fit(d[cols], d["target"])
 
 
-def entrenar_metodo(d):
-    """Como termina la pelea (ko/sub/dec), solo desde el contexto.
+def entrenar_metodo(d, cols=None):
+    """Como termina la pelea (ko/sub/dec).
 
     Medido (rolling-origin 20 folds, 2026-07-31): el contexto le gana al base rate
     (-0.0142, IC95% [-0.0216, -0.0069]) y el historial de los peleadores NO agrega
     nada encima — los diffs son no concluyentes (+0.0034) y las sumas simetricas de
     finish/kd/sub empeoran (+0.0252, se descarta). La probabilidad de metodo es una
     propiedad de la division, no del matchup.
+
+    Con `cols=CONTEXTO_ODDS` entran ademas las props del mercado, que son un prior
+    directo del target. Como no hay cuota para toda cartelera futura, se despliegan los
+    dos bundles y `predict.py` elige — el mismo patron que el modelo de ganador.
     """
-    return HistGradientBoostingClassifier(**PARAMS).fit(
-        d[features.CONTEXTO], d["metodo"])
+    cols = features.CONTEXTO if cols is None else cols
+    return HistGradientBoostingClassifier(**PARAMS).fit(d[cols], d["metodo"])
+
+
+def probar_metodo(df, corte):
+    """Mide el modelo de metodo con props de mercado contra el de contexto solo.
+
+    Solo sobre las peleas que tienen prop: comparar donde una de las dos no puede opinar
+    seria medir cobertura, no señal.
+    """
+    clases = ["dec", "ko", "sub"]  # orden alfabetico, el que usa HistGB en classes_
+    acum = {k: [] for k in ("contexto", "props como feature", "mercado solo", "blend")}
+    ys = []
+    for tr, te in rolling_origin(df, corte):
+        u = te.iloc[0::2]
+        hay = u[features.PROPS].notna().all(axis=1).to_numpy()
+        if not hay.any() or not tr[features.PROPS].notna().all(axis=1).any():
+            continue
+        for nombre, cols in (("contexto", features.CONTEXTO),
+                             ("props como feature", features.CONTEXTO_ODDS)):
+            m = entrenar_metodo(tr, cols)
+            assert list(m.classes_) == clases, m.classes_
+            p = m.predict_proba(te[cols])
+            acum[nombre].append(((p[0::2] + p[1::2]) / 2)[hay])
+        # el mercado crudo, sin modelo en el medio: p_dec/p_ko/p_sub en ese orden
+        mk = u[["p_dec_mkt", "p_ko_mkt", "p_sub_mkt"]].to_numpy(float)[hay]
+        acum["mercado solo"].append(mk)
+        acum["blend"].append((acum["contexto"][-1] + mk) / 2)
+        ys.append(u["metodo"].to_numpy()[hay])
+
+    y = np.concatenate(ys)
+    acum = {k: np.concatenate(v) for k, v in acum.items()}
+    idx = (np.arange(len(y)), [clases.index(v) for v in y])
+    perdida = lambda p: -np.log(np.clip(p[idx], 1e-15, None))  # noqa: E731
+
+    print(f"\nmetodo, rolling-origin sobre {len(y)} peleas con prop de mercado:")
+    frec = np.tile(pd.Series(y).value_counts(normalize=True).reindex(clases).to_numpy(),
+                   (len(y), 1))
+    print(f"  {'base rate':20s} log loss {log_loss(y, frec, labels=clases):.4f}")
+    for k, p in acum.items():
+        print(f"  {k:20s} log loss {log_loss(y, p, labels=clases):.4f}")
+    for k in ("props como feature", "mercado solo", "blend"):
+        print(f"  {k:20s} vs contexto: "
+              f"{veredicto(*bootstrap(perdida(acum[k]) - perdida(acum['contexto'])))}")
 
 
 def probas(modelos, d, cols):
@@ -120,6 +167,13 @@ def _perdida(y, p):
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
+def bootstrap(d, n_boot=2000, seed=0):
+    """-> (media, lo, hi) de un vector de deltas pareados, por bootstrap."""
+    rng = np.random.default_rng(seed)
+    bs = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
+    return d.mean(), np.percentile(bs, 2.5), np.percentile(bs, 97.5)
+
+
 def comparar(p_nuevo, p_viejo, y, n_boot=2000, seed=0):
     """-> (delta, lo, hi) del log loss pareado. Negativo = el nuevo es mejor.
 
@@ -127,16 +181,43 @@ def comparar(p_nuevo, p_viejo, y, n_boot=2000, seed=0):
     correlacionados, asi que la diferencia tiene mucho menos ruido que cada log loss
     por separado. Regla de corte: el cambio queda solo si el IC95% no toca 0.
     """
-    d = _perdida(y, p_nuevo) - _perdida(y, p_viejo)
-    rng = np.random.default_rng(seed)
-    bs = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
-    return d.mean(), np.percentile(bs, 2.5), np.percentile(bs, 97.5)
+    return bootstrap(_perdida(y, p_nuevo) - _perdida(y, p_viejo), n_boot, seed)
+
+
+def veredicto(delta, lo, hi):
+    corte = "queda" if hi < 0 else "se descarta" if lo > 0 else "no concluyente"
+    return f"{delta:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  {corte}"
 
 
 def _veredicto(p_nuevo, p_viejo, y):
-    delta, lo, hi = comparar(p_nuevo, p_viejo, y)
-    corte = "queda" if hi < 0 else "se descarta" if lo > 0 else "no concluyente"
-    return f"{delta:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  {corte}"
+    return veredicto(*comparar(p_nuevo, p_viejo, y))
+
+
+def probar(df, corte):
+    """Mide cada bloque de `features.BLOQUES` contra el baseline, con el mismo protocolo.
+
+    El baseline se entrena una sola vez por fold y se reusa para todas las candidatas: el
+    bootstrap de `comparar` es pareado, asi que juzgarlas contra las MISMAS predicciones
+    es lo que hace comparables los deltas entre bloques.
+
+    La regla de corte no cambia: pasa a FEATURES solo lo que deja el IC95% sin tocar cero.
+    """
+    bloques = [*features.BLOQUES.items(), ("TODAS_JUNTAS", features.CANDIDATAS)]
+    acum, base, ys = {n: [] for n, _ in bloques}, [], []
+    for tr, te in rolling_origin(df, corte):
+        base.append(probas(entrenar(tr, features.FEATURES), te, features.FEATURES)["blend"])
+        for nombre, extra in bloques:
+            cols = features.FEATURES + extra
+            acum[nombre].append(probas(entrenar(tr, cols), te, cols)["blend"])
+        ys.append(objetivo(te))
+
+    y, p_base = np.concatenate(ys), np.concatenate(base)
+    print(f"\nbaseline log loss {log_loss(y, p_base):.4f} sobre {len(y)} peleas\n")
+    for nombre, extra in bloques:
+        p = np.concatenate(acum[nombre])
+        cob = df[extra].notna().any(axis=1).mean()
+        print(f"  {nombre:18s} {log_loss(y, p):.4f}  {_veredicto(p, p_base, y)}"
+              f"   ({len(extra)} cols, cobertura {cob:.0%})")
 
 
 def _cuotas_con_vig(u):
@@ -168,6 +249,33 @@ def _roi(pago, rng):
     bs = pago[rng.integers(0, len(pago), (2000, len(pago)))].mean(axis=1)
     lo, hi = np.percentile(bs, [2.5, 97.5])
     return f"{pago.mean():+7.2%}  IC95% [{lo:+.2%}, {hi:+.2%}]  n={len(pago):5d}"
+
+
+def calidad_por_tramo(p_mod, p_mkt, y):
+    """Log loss del modelo y del mercado por tramo de |modelo - mercado|.
+
+    Es de donde salen los textos de `predict.CONFIANZA`, que le dicen al usuario cuanto
+    creerle a cada prediccion. Se imprime aca y no se deriva a mano porque cambia con
+    cada modelo nuevo: una etiqueta de confianza que quedo vieja miente con autoridad.
+    """
+    hay = np.isfinite(p_mkt)
+    p_mod, p_mkt, y = p_mod[hay], p_mkt[hay], y[hay]
+    brecha = np.abs(p_mod - p_mkt)
+    ll = lambda p, t: log_loss(y[t], p[t], labels=[0, 1])  # noqa: E731
+    print(f"\ncalidad por tramo de |modelo - mercado| ({hay.sum()} peleas con cuota):")
+    desde = 0.0
+    for corte, nombre in ((0.05, "alta"), (0.15, "media"), (0.25, "baja"),
+                          (1.01, "muy baja")):
+        t = (brecha >= desde) & (brecha < corte)
+        if t.sum():
+            print(f"  {nombre:10s} modelo {ll(p_mod, t):.4f}  mercado {ll(p_mkt, t):.4f}"
+                  f"   n={t.sum()}")
+        desde = corte
+    # cuando eligen ganadores distintos, uno de los dos se equivoca: cual, y cuanto
+    d = (p_mod > 0.5) != (p_mkt > 0.5)
+    if d.sum():
+        print(f"  discrepan en el ganador: modelo acierta {((p_mod[d] > 0.5) == y[d]).mean():.1%}"
+              f", mercado {((p_mkt[d] > 0.5) == y[d]).mean():.1%}   n={d.sum()}")
 
 
 def apostabilidad(u, p_mod, p_mkt, y):
@@ -281,6 +389,9 @@ def main():
     print("  con odds vs mercado : "
           f"{_veredicto(acum['con odds'][hay], acum['mercado'][hay], ys[hay])}")
 
+    # --- de donde salen las etiquetas de confianza de la app
+    calidad_por_tramo(acum["blend"], acum["mercado"], ys)
+
     # --- y si eso se apuesta, cuanto rinde: es lo que la app puede marcar como candidata
     apostabilidad(pd.concat(meta, ignore_index=True), acum["blend"],
                   acum["mercado"], ys)
@@ -309,4 +420,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "probar":
+        d = pd.read_csv(FEATS, parse_dates=["date"])
+        probar(d, d["date"].max() - pd.DateOffset(years=2))
+    else:
+        main()

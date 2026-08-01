@@ -240,13 +240,200 @@ Cuarta confirmación independiente del techo de información.
 - `features.csv` gana las columnas `metodo` (target) y `CONTEXTO`; `FEATURES` del
   ganador queda en las 22 de siempre.
 
-## Hechos externos verificados (2026-07-30)
+## Ronda de fuentes externas (2026-07-31): el techo era de fuente, no de features
+
+Punto de partida: el README declaraba techo de información y cuatro rondas lo habían
+confirmado. Faltaba preguntarse **de dónde** sacar la información que falta.
+
+### El diagnóstico que reabrió la fase de datos externos
+
+La brecha contra el mercado no es uniforme (rolling-origin, peleas con cuota):
+
+| corte | peleas | modelo | mercado | brecha |
+|---|---|---|---|---|
+| debutante en el ring | 1301 | 0.6688 | **0.5734** | **0.0954** |
+| resto | 4472 | 0.657 | 0.620 | ~0.037 |
+| favorito de mercado >0.80 | 629 | 0.5517 | **0.3975** | **0.1542** |
+
+**Corrige el corolario de la ronda anterior** (`DECISIONS.md`, ronda de odds), que mató
+la fase de récord pre-UFC porque "en debutantes el modelo rinde igual que en el resto".
+Es cierto y es la comparación equivocada: lo que importa no es cuánto pierde el modelo
+ahí sino cuánto se puede ganar, y el mercado demuestra que 0.5734 es alcanzable donde el
+modelo saca 0.6688. Las peleas de debutantes son las más predecibles del deporte.
+
+### Se probó TODO lo que quedaba sin usar en ufcstats. Todo no concluyente.
+
+Seis bloques nuevos, con `train.py probar` (20 folds, baseline 0.6592):
+
+- golpeo por objetivo (head/body/leg, ofensa y defensa): +0.0000 [−0.0010, +0.0009]
+- golpeo por posición (distance/clinch/ground): +0.0003 [−0.0005, +0.0011]
+- volumen (total str. / sig. str.): −0.0005 [−0.0011, +0.0002]
+- cardio (fade R3+ vs R1-2 en rondas completas, rounds tardíos): −0.0003 [−0.0010, +0.0004]
+- calidad de victorias (margen de tarjetas, split rate, peleas de título): −0.0003 [−0.0013, +0.0007]
+- stance (southpaw como matchup antisimétrico, re-test del descarte viejo): −0.0002 [−0.0011, +0.0007]
+
+Eso cubre las 12 columnas de `ufc_fight_stats.csv` que nunca se habían leído, la
+granularidad por round que el `.sum()` destruía, y las tarjetas de los jueces de
+`DETAILS`. **Cero líneas quedaron.**
+
+**Por qué**, mirando AUC univariada contra correlación con las 22 features actuales: lo
+que tiene señal ya estaba capturado (`title_win_rate` AUC 0.614 pero correlaciona 0.592
+con `win_rate`; `ground_pct` 0.637 con `ctrl_per_min`) y lo genuinamente ortogonal es
+ruido (`fade` AUC 0.496 con correlación 0.110; `es_southpaw` 0.518 con 0.045). El pozo de
+ufcstats está seco **para información**, no solo para features.
+
+Detalle metodológico: `_margen` de las tarjetas no se puede orientar. En ufcstats el
+score va siempre perdedor-ganador sin importar el orden del bout — verificado sobre 3980
+decisiones, donde "el ganador va primero" da 38.6%, que es exactamente la fracción de
+peleas que gana `fighter_b`. Solo sirve la magnitud.
+
+### Lo que sí entró: circunstancia de la pelea, vía Wikipedia
+
+`wiki.py` extrae de la sección *Background* de cada evento quién entró de reemplazo y
+quién no dio el peso. **Es lo único del pipeline que no sale del historial deportivo.**
+
+- **`reemplazo` + `peso_no_dado`: −0.0020, IC95% [−0.0033, −0.0006] → queda.** Primer
+  bloque que pasa el protocolo de 20 folds desde que el protocolo existe.
+- Crudo, sobre 8639 peleas: el que entra de reemplazo gana el **39.1%** (n=860) y el que
+  no da el peso el **41.1%** (n=253), contra 50% de base. Simétrico exacto en el espejado.
+- Cobertura: 629/781 eventos con artículo validado (83% de las peleas; 92% desde 2018,
+  6% antes de 2005 — los eventos viejos no tienen artículo).
+- Descartado en la misma ronda: `peso_no_dado_rate`, la tasa acumulada de no dar el peso,
+  +0.0000 [−0.0003, +0.0004]. **El hábito no informa, la circunstancia sí** — y juntas
+  rinden menos (−0.0015) que la circunstancia sola.
+
+Números nuevos del modelo: rolling-origin 0.6592 → **0.6572**; test 0.6371 → **0.6355**;
+brecha contra el mercado 0.0500 → **0.0475**. `predict.py` re-derivó `CONFIANZA` y
+`ROI_APOSTABLE` (tramo alta: +5.82% → **+3.18%**, IC95% [−4.51%, +10.80%], n=878).
+
+Dos decisiones de diseño que valen para quien siga:
+
+- **`reemplazo`/`peso_no_dado` no son estado**, son circunstancia de la pelea, así que no
+  viven en `fighter_state.csv`: entran por `predict.predict(circ_a=, circ_b=)` con default
+  (0, 0) = campamento normal, y la app los expone como checkboxes. Quien carga la pelea
+  sabe el dato — es noticia pública — y el modelo no puede deducirlo de ningún historial.
+- **"No mencionado" solo significa 0 si el evento tiene artículo.** Sin artículo es NaN.
+  Por eso `wiki.py` escribe `data/wiki_eventos.csv` además de los avisos: sin esa lista,
+  media base recibiría "todo normal" y la feature sería ruido con cara de dato.
+
+### Método: el mercado le gana por goleada, pero hoy no se puede servir
+
+Props de método de `ufc_odds.csv` (`r_ko_odds`, `b_sub_odds`, …), sin usar hasta ahora,
+desvigueadas normalizando las tres vías. Sobre 4591 peleas con prop:
+
+| | log loss |
+|---|---|
+| base rate | 1.0187 |
+| contexto (el modelo actual) | 1.0174 |
+| props como feature del HistGB | 1.0489 (**se descarta**, +0.0315 [+0.0129, +0.0496]) |
+| **prop del mercado cruda** | **0.9582** (−0.0592 [−0.0703, −0.0486], queda) |
+| blend contexto + mercado | 0.9706 (−0.0467) |
+
+El modelo de contexto le gana al base rate por 0.0013; el mercado le gana por 0.059.
+Meterle las props al GBM las **empeora** — las re-aprende peor de lo que vienen.
+
+**Bloqueado en el serving, no en la medición:** `ufc_odds.csv` está congelado en 2026-04
+y las fuentes vivas no traen props de método. Verificado en vivo: Betano expone solo
+"Ganador" (2 selecciones) en sus páginas de cartelera, y `oddsapi.py` pide `markets=h2h`.
+Queda `train.probar_metodo` listo para re-correr si aparece una fuente. No se cableó nada:
+sería código muerto.
+
+## Ronda de récord pre-UFC (2026-08-01): Sherdog, la segunda fuente externa
+
+**Qué se tapó.** El 25% de las peleas tiene un debutante en UFC, que entraba al modelo con
+`n_fights=0` y Elo default; el 55% tiene a alguien con ≤2 peleas, donde las tasas
+acumuladas son ruido sobre una o dos peleas. Sherdog trae el historial regional **con fecha
+por combate**, y esa fecha es lo único que permite cortar en el debut sin filtrar futuro.
+Mediana: 10 peleas previas por peleador, o sea un currículum entero que el modelo no veía.
+
+**Lo que pasó el protocolo: `previo_metodo`** (`prev_ko_w`, `prev_sub_w`, `prev_ko_l`,
+`prev_sub_l`), −0.0022 IC95% [−0.0039, −0.0006] en el rolling-origin de 20 folds.
+Cobertura 2706/2724 peleadores (99.3%); los 18 restantes quedan NaN.
+
+**Descartado en la misma ronda: el récord crudo** (`prev_n`, `prev_w`, `prev_l`). Pasa solo
+(−0.0014 [−0.0028, −0.0001]) pero no aporta **nada** arriba del método: los siete juntos
+rinden −0.0021, menos que los cuatro solos. Mismo patrón que la ronda anterior con el
+hábito de no dar el peso: lo que informa es el detalle, no el agregado.
+
+Crudo, sobre 8639 peleas, y es lo que hay que entender de la feature:
+
+| | gana |
+|---|---|
+| el que llega con más peleas regionales | 47.4% |
+| el que llega con más victorias previas | 48.9% |
+| el que llega con más derrotas previas | 44.7% |
+| el que llega con más KO recibidos | **43.8%** |
+
+**Más experiencia regional no es mejor**: el veterano de circuito no es un prospecto. Y las
+victorias previas casi no informan por sesgo de selección — a UFC no llega nadie con récord
+perdedor (win rate previo mediano 0.85). Informa lo que el filtro de entrada no borra.
+
+Números nuevos del modelo: rolling-origin 0.6572 → **0.6550**; test 0.6355 → **0.6342**;
+brecha contra el mercado 0.0475 → **0.0453**. `predict.py` re-derivó `CONFIANZA` y
+`ROI_APOSTABLE` (tramo alta: +3.18% → **+1.87%**, IC95% [−5.56%, +9.40%], n=863).
+
+Tres decisiones de diseño que valen para quien siga:
+
+- **El récord pre-UFC sí viaja en `fighter_state.csv`**, al revés que la circunstancia de
+  Wikipedia. No es estado acumulado —es una condición inicial fija, anterior al debut, que
+  no se actualiza nunca— pero `predict` arma el snapshot desde esa tabla, así que sin
+  guardarlo la app serviría NaN en cuatro features que el modelo sí usa.
+- **La validación no es por nombre, es por pelea.** El buscador de Sherdog devuelve cuatro
+  "Alex Pereira" distintos. Cada ficha se valida contra peleas de UFC que ya conocemos
+  (fecha exacta + apellido del rival); si no coincide ninguna, se descarta. Y cuando el
+  nombre directamente no une las dos fuentes ("Aleksei Oleinik" en ufcstats es "Alexey
+  Oleynik" en Sherdog), la segunda pasada saca la URL de la ficha de un rival ya bajado,
+  buscando por fecha. Rescató 171 peleadores sin pedir un solo request.
+- **`train.calidad_por_tramo` es nuevo y existe por una razón:** los log loss por tramo que
+  sostienen los textos de `predict.CONFIANZA` se derivaban a mano. Ahora se imprimen en cada
+  corrida. Una etiqueta de confianza que quedó vieja miente con autoridad.
+
+**Verificación de la fuente, que fue lo que destapó los bugs.** Se cruzó el historial
+parseado contra el total W-L que declara la propia ficha: **2760/2760 cuadran exacto**. Ese
+cruce encontró tres errores que los spot-checks sueltos no veían — la ficha tiene **tres**
+tablas apiladas (PRO, PRO EXHIBITION del TUF, AMATEUR) y sumarlas inflaba el récord
+(O'Malley salía 13-1 habiendo debutado 8-0); `TKO (Submission to Punches)` se contaba como
+KO y como sumisión a la vez; y las peleas contra "Unknown Fighter", que no llevan link, se
+descartaban enteras. Los tres tienen caso en `sherdog.py --autocheck`.
+
+**Alternativas descartadas antes de scrapear** (verificado 2026-08-01): los datasets de
+Kaggle son derivados de ufcstats, o sea lo que ya teníamos; el único dump de Sherdog con
+datos publicado (`LittleLebowskiUrbanAchievers/Data-Collection`) trae agregados W/L/D sin
+pelea por pelea y está congelado en 2017; el resto de los repos son scrapers, no datos. Y
+el fondo del asunto: **cualquier agregado es el récord de hoy, con las peleas de UFC
+adentro** — usarlo sería filtrar futuro. Sin fecha por combate no hay corte anti-leakage.
+
+## Hechos externos verificados (2026-07-30, ampliado 2026-07-31)
 
 - **`ufcstats.com` está detrás de un challenge JS de proof-of-work.** No se puede scrapear
   con `requests`. El mirror de `Greco1899/scrape_ufc_stats` no es una comodidad: es la
   única vía práctica. Su repo tiene exactamente los 6 CSVs que ya se bajan.
 - **Sherdog responde** con UA normal (107 KB, bloque de récord W/L/NC + historial): es la
   fuente viable para el récord pre-UFC. **Tapology está bloqueado por Cloudflare** (403).
+- **Tapology queda descartada por dos razones independientes** (re-verificado 2026-07-31):
+  el 403 es un *challenge interactivo* de Cloudflare, o sea un control de acceso activo que
+  habría que romper; y su `robots.txt` declara `Content-Signal: ai-train=no, use=reference`
+  con reserva expresa de derechos bajo el Artículo 4 de la directiva UE 2019/790. No se
+  implementa bypass.
+- **Sherdog `robots.txt` es `User-agent: * / Allow: /`**, sin content-signals ni challenge.
+  La ficha de peleador es una tabla HTML limpia con **fecha por combate** (`['loss',
+  'Rival', 'Evento  Mar / 07 / 2020', 'Submission (RNC)  Arbitro', '1', '2:23']`),
+  incluyendo circuito regional — la fecha es lo que permite el filtro anti-leakage.
+  **Las URLs por nombre solo (`/fighter/Alex-Pereira`) dan 404**: hace falta resolver el ID
+  vía `/stats/fightfinder?SearchTxt=`, o sea ~2 requests por peleador × 2716.
+- **Sherdog resuelto y explotado** (2026-08-01): las URLs por nombre solo dan 404, el ID se
+  resuelve por `/stats/fightfinder?SearchTxt=`, y el crawl completo son ~2700 fichas a 0.5 s.
+  El mapa nombre→ID se llena solo con los rivales linkeados en cada ficha, así que la mitad
+  de las búsquedas se evita. El buscador tira 500 intermitentes (13 en 2724) y timeouts (16);
+  ninguno es rate limit — con sesión nueva responde 200 al instante. Ver la ronda de arriba.
+- **Sherdog NO sirve para reemplazos ni peso no dado**: solo los narra en prosa dentro de
+  notas de pesaje ("Medic officially weighed 171 pounds on the dot") y solo de años
+  recientes. Wikipedia cubre lo mismo desde UFC 1, vía API pública y con licencia CC BY-SA.
+- **El buscador de la API de Wikipedia resuelve a artículos equivocados** con total
+  naturalidad: "Jung vs. Ige" devuelve la ficha de Dan Ige, "Belfort vs Henderson 2"
+  devuelve el 3. Por eso `wiki._es_el_evento` valida cada artículo contra la **fecha** del
+  evento antes de creerle. Un reemplazo atribuido al evento equivocado es peor que un NaN.
+  Con `PAUSA` de 0.15 s la API devuelve 429; 0.5 s con backoff aguanta los 781 eventos.
 
 ## Open questions for the spec author
 

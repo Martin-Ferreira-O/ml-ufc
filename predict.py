@@ -23,34 +23,41 @@ STATE = pathlib.Path("data/fighter_state.csv")
 
 # Umbrales sobre |p_modelo - p_mercado|, medidos con rolling-origin sobre 5773 peleas
 # (mercado desvigueado con power, 2026-07-31). Log loss del modelo por tramo:
-# <0.05 -> 0.6614 (igual que el mercado, 0.6641); 0.15-0.25 -> 0.6545 vs 0.5770;
-# >0.25 -> 0.7354 vs 0.5363, peor que una moneda. Cuando eligen ganadores distintos,
-# el mercado acierta 58.5% y el modelo 41.5%.
+# <0.05 -> 0.6487 (igual que el mercado, 0.6503); 0.15-0.25 -> 0.6540 vs 0.5695;
+# >0.25 -> 0.7328 vs 0.5674, peor que una moneda. Cuando eligen ganadores distintos,
+# el mercado acierta 57.0% y el modelo 43.0%.
+# Sale de `train.calidad_por_tramo`, que lo imprime en cada corrida: son numeros que
+# cambian con el modelo, y una etiqueta de confianza vieja miente con autoridad.
 CONFIANZA = (
     (0.05, "alta", "El modelo y el mercado coinciden. En este tramo el modelo acierta "
-                   "tanto como la casa (log loss 0.661 vs 0.664)."),
+                   "tanto como la casa (log loss 0.649 vs 0.650)."),
     (0.15, "media", "Hay una discrepancia moderada. Historicamente el mercado empieza a "
-                    "ganarle al modelo desde aca (0.620 vs 0.643)."),
+                    "ganarle al modelo desde aca (0.622 vs 0.642)."),
     (1.01, "baja", "Discrepan fuerte, y eso NO es valor: donde el modelo mas se aparta "
-                   "rinde peor que una moneda (0.735) y la casa acierta 58.5% contra "
-                   "41.5% del modelo. Es senal de que el mercado sabe algo que el "
+                   "rinde peor que una moneda (0.733) y la casa acierta 57.0% contra "
+                   "43.0% del modelo. Es senal de que el mercado sabe algo que el "
                    "modelo no ve."),
 )
 
 
 # ROI de flat-bet out-of-sample (train.apostabilidad, 5773 peleas con cuota REAL, vig
 # mediano 3.6%), apostando todo lado con EV = p_modelo*cuota - 1 > 0, por tramo:
-#   alta      +5.82%  IC95% [-1.97%, +13.22%]  n=887   <- lo unico que no pierde medido
-#   media     -6.95%  IC95% [-12.23%, -1.78%]  n=2329
-#   baja      -8.33%  IC95% [-15.98%, -0.23%]  n=1366
-#   muy baja  -7.67%  IC95% [-19.94%, +5.65%]  n=663
-# Todo junto: -5.24%. Control siempre-favorito: -3.35%; siempre-underdog: -6.73%.
+#   alta      +1.87%  IC95% [-5.56%, +9.40%]   n=863   <- lo unico que no pierde medido
+#   media     -5.22%  IC95% [-10.50%, -0.19%]  n=2417
+#   baja     -10.83%  IC95% [-18.19%, -3.17%]  n=1358
+#   muy baja  +2.74%  IC95% [-11.07%, +16.33%] n=605
+# Todo junto: -4.59%. Control siempre-favorito: -3.35%; siempre-underdog: -6.73%.
 # O sea: el unico tramo apostable es donde el modelo YA coincide con la casa, y ni ahi
 # el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada —
 # y encima es el mejor de 4 tramos elegido a posteriori, o sea que la evidencia real
 # es mas debil todavia. El Historial de la app (CLV) es el forward test que decide.
 APOSTABLE = "alta"
-ROI_APOSTABLE = "+5.8% IC95% [-2.0%, +13.2%] sobre 887 apuestas"
+ROI_APOSTABLE = "+1.9% IC95% [-5.6%, +9.4%] sobre 863 apuestas"
+
+
+# Circunstancias de la pelea que el modelo usa pero el estado del peleador no tiene.
+# El orden es el de `circ_a`/`circ_b` en `predict`.
+CIRCUNSTANCIA = ("reemplazo", "peso_no_dado")
 
 
 def _normalizar(s):
@@ -137,12 +144,19 @@ def metodo(modelo, wc_lbs=np.nan, mujer=np.nan, cinco_r=np.nan):
     return dict(zip(sub["hgb"].classes_, (float(x) for x in p)))
 
 
-def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None):
+def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
+            circ_a=(0.0, 0.0), circ_b=(0.0, 0.0)):
     """-> dict. `p_a`/`p_b` son del modelo que NO usa odds (la opinion independiente).
 
     Con `cuotas` = (decimal_a, decimal_b) agrega `p_a_mercado`, `p_a_con_odds`,
     `confianza` y `motivo`. Sin cuotas no hay nivel de confianza: es lo unico medido
     que predice el error, y sin cuota no se puede calcular.
+
+    `circ_a`/`circ_b` = (reemplazo, peso_no_dado), 0 o 1. No salen del estado del
+    peleador porque no son historial: son circunstancias de ESTA pelea, y quien la
+    carga las sabe (son noticia publica). El default (0, 0) es "campamento normal",
+    que es lo que pasa en ~9 de cada 10 peleas. Marcar reemplazo mueve la prediccion
+    fuerte y con razon: el que entra de reemplazo gana el 39% de las veces.
     """
     if modelo is None or estado is None:
         modelo, estado = cargar()
@@ -150,14 +164,15 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None)
 
     base = modelo["sin_odds"]
     filas, mezclados = [], []
-    for nombre in (nombre_a, nombre_b):
+    for nombre, circ in ((nombre_a, circ_a), (nombre_b, circ_b)):
         clave = _normalizar(nombre)
         if clave not in estado.index:
             raise ValueError(f"No encuentro a '{nombre}' en el dataset.")
         fila = estado.loc[clave]
         if fila.get("homonimo"):
             mezclados.append(nombre)
-        filas.append(_snapshot(fila, hoy, base["cols"]))
+        filas.append({**_snapshot(fila, hoy, base["cols"]),
+                      **dict(zip(CIRCUNSTANCIA, (float(x) for x in circ)))})
 
     diffs = [filas[0][k] - filas[1][k] for k in base["cols"]]
     X = pd.DataFrame([diffs, [-d for d in diffs]], columns=base["cols"])

@@ -1,6 +1,12 @@
 """Descarga los CSVs de ufcstats.com ya scrapeados por Greco1899/scrape_ufc_stats.
 
 Ese repo refresca los datos a diario, asi que re-correr este script = datos al dia.
+
+Despues de esto van las dos fuentes externas, las dos cacheadas (solo piden lo nuevo):
+`python wiki.py` trae los reemplazos y los pesos no dados de los eventos nuevos, y
+`python sherdog.py` el record pre-UFC de los peleadores nuevos. Sin la primera, las peleas
+nuevas quedan con `reemplazo`/`peso_no_dado` en NaN; sin la segunda, los debutantes quedan
+sin su historial regional, que es justo donde el modelo no tiene nada mas.
 """
 
 import pathlib

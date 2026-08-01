@@ -18,6 +18,9 @@ import predict
 
 RAW = pathlib.Path("data/raw")
 OUT = pathlib.Path("data/features.csv")
+AVISOS = pathlib.Path("data/wiki_avisos.csv")
+WIKI_EVENTOS = pathlib.Path("data/wiki_eventos.csv")
+PREVIO = pathlib.Path("data/sherdog_previo.csv")
 K_ELO = 32
 
 # nombre -> como se calcula desde el estado previo del peleador
@@ -27,11 +30,50 @@ FEATURES = [
     "days_since_last", "age", "height_in", "reach_in",
     "kd_per15", "kd_against_per15", "finished_against_rate",
     "td_def", "str_def", "avg_opp_elo",
+    # Circunstancia de ESTA pelea, no historial: sale de Wikipedia via wiki.py. Medido
+    # -0.0020 IC95% [-0.0033, -0.0006] en el rolling-origin de 20 folds — el unico bloque
+    # que paso el protocolo. Crudo: el que entra de reemplazo gana 39.1% (n=860) y el que
+    # no da el peso 41.1% (n=253), contra 50% de base. Ninguna feature acumulada lo ve.
+    "reemplazo", "peso_no_dado",
+    # Como ganaba y como perdia ANTES de UFC, del circuito regional (sherdog.py). Medido
+    # -0.0022 IC95% [-0.0039, -0.0006]. Tapa el agujero mas grande que quedaba: en el 25%
+    # de las peleas hay un debutante, que sin esto entra con n_fights=0 y elo default.
+    # Crudo, y esto es lo que hay que entender de la feature: el que llega con MAS peleas
+    # regionales gana el 47.4%, no mas — el veterano de circuito no es un prospecto. Las
+    # victorias previas no informan (48.9%, sesgo de seleccion: a UFC no llega nadie con
+    # record perdedor); informan las derrotas (44.7%) y sobre todo los KO recibidos
+    # (43.8%), que es lo unico que el filtro de entrada no borra.
+    "prev_ko_w", "prev_sub_w", "prev_ko_l", "prev_sub_l",
 ]
 # Contexto simetrico de la pelea (vale igual en las dos filas espejadas). Para el
 # target de ganador esta medido no concluyente (rolling-origin 2026-07-31), pero es
 # el insumo principal del modelo de metodo: las tasas de finish cambian por division.
 CONTEXTO = ["wc_lbs", "mujer", "cinco_r"]
+
+# Candidatas EN MEDICION. Se calculan y viajan en features.csv, pero NO entran al modelo:
+# `python train.py probar` las mide de a bloques contra el baseline y solo pasan a FEATURES
+# las que dejan el IC95% del delta pareado sin tocar cero.
+#
+# La ronda anterior probo TODO lo que quedaba sin usar en los CSVs de ufcstats — mezcla de
+# golpeo por objetivo y posicion, cardio por round, calidad de las decisiones, peleas de
+# titulo, stance — y salieron las seis no concluyentes, con deltas dentro de +-0.0005.
+# El diagnostico quedo claro al mirar AUC contra correlacion: lo que tenia senial ya estaba
+# capturado (title_win_rate correlaciona 0.59 con win_rate, ground_pct 0.64 con
+# ctrl_per_min) y lo genuinamente ortogonal es ruido (fade AUC 0.496, es_southpaw 0.518).
+# Por eso las candidatas de aca ya no salen del historial deportivo: salen de afuera.
+# Ya promovido a FEATURES: "circunstancia" (reemplazo + peso_no_dado), -0.0020.
+# Ya descartado: "historial_peso" (peso_no_dado_rate, la tasa acumulada de no dar el peso),
+# +0.0000 IC95% [-0.0003, +0.0004] — el habito no informa, la circunstancia si.
+# Ya promovido a FEATURES: "previo_metodo" (prev_ko_w/sub_w/ko_l/sub_l), -0.0022.
+# Ya descartado: "previo" (prev_n, prev_w, prev_l, el record pre-UFC crudo). Pasa solo
+# (-0.0014 [-0.0028, -0.0001]) pero no aporta NADA arriba del metodo: los siete juntos
+# rinden -0.0021, menos que los cuatro solos. Lo que informa no es cuanto peleo el tipo
+# antes, es como terminaban esas peleas.
+BLOQUES = {}
+CANDIDATAS = [c for cols in BLOQUES.values() for c in cols]
+_TODAS = FEATURES + CANDIDATAS
+# las de sherdog, esten promovidas o en medicion: se leen del CSV igual
+_PREV = [c for c in _TODAS if c.startswith("prev_")]
 _LBS = [("Strawweight", 115), ("Flyweight", 125), ("Bantamweight", 135),
         ("Featherweight", 145), ("Lightweight", 155), ("Welterweight", 170),
         ("Middleweight", 185), ("Light Heavyweight", 205), ("Heavyweight", 265)]
@@ -39,6 +81,10 @@ _LBS = [("Strawweight", 115), ("Flyweight", 125), ("Bantamweight", 135),
 # su propio conjunto. Se entrena un modelo con cada uno para poder mostrar los dos.
 MERCADO = "mkt_logit"
 FEATURES_ODDS = FEATURES + [MERCADO]
+# Props de metodo del mercado: simetricas ante el espejado (suman las dos esquinas), asi
+# que son legales en el modelo de metodo, cuyo target tambien es simetrico.
+PROPS = ["p_ko_mkt", "p_sub_mkt", "p_dec_mkt"]
+CONTEXTO_ODDS = CONTEXTO + PROPS
 
 
 def _num(x):
@@ -72,17 +118,27 @@ def _fight_minutes(row):
     return (float(row["ROUND"]) - 1) * 5 + last
 
 
+# stats por pelea que se acumulan tal cual: propias y, espejadas, las del rival
+_MIAS = ("sig_l", "sig_a", "td_l", "td_a", "sub", "ctrl", "kd")
+# contador propio -> columna del rival de la que sale (defensas y golpeo recibido)
+_SUYAS = {"sig_abs": "sig_l", "sig_abs_a": "sig_a", "kd_abs": "kd",
+          "td_abs_l": "td_l", "td_abs_a": "td_a"}
+
+
 def _new_state():
-    return dict(n=0, w=0, streak=0, sig_l=0.0, sig_a=0.0, sig_abs=0.0, td_l=0.0,
-                td_a=0.0, sub=0.0, ctrl=0.0, minutes=0.0, finishes=0,
-                last_date=None, elo=1500.0, kd=0.0, kd_abs=0.0, finished_against=0,
-                td_abs_l=0.0, td_abs_a=0.0, sig_abs_a=0.0, opp_elo=0.0)
+    st = dict(n=0, w=0, streak=0, minutes=0.0, finishes=0, last_date=None, elo=1500.0,
+              finished_against=0, opp_elo=0.0)
+    return {**st, **{k: 0.0 for k in (*_MIAS, *_SUYAS)}}
 
 
-def _snapshot(st, date, dob, height, reach):
-    """Features de un peleador a la fecha `date`, desde su estado previo."""
+def _snapshot(st, date, p):
+    """Features de un peleador a la fecha `date`, desde su estado previo.
+
+    `p` es su fila de fisicos (o None si ufcstats no lo tiene).
+    """
     n, mins = st["n"], st["minutes"]
     div = lambda a, b: a / b if b else np.nan  # noqa: E731
+    dob = p["dob"] if p is not None else pd.NaT
     return {
         "elo": st["elo"],
         "n_fights": float(n),
@@ -104,8 +160,8 @@ def _snapshot(st, date, dob, height, reach):
         "avg_opp_elo": div(st["opp_elo"], n),
         "days_since_last": (date - st["last_date"]).days if st["last_date"] else np.nan,
         "age": (date - dob).days / 365.25 if pd.notna(dob) else np.nan,
-        "height_in": height,
-        "reach_in": reach,
+        "height_in": p["height_in"] if p is not None else np.nan,
+        "reach_in": p["reach_in"] if p is not None else np.nan,
     }
 
 
@@ -148,6 +204,86 @@ def _mercado(results):
     return pd.Series(np.log(p / (1 - p)), index=results.index)
 
 
+_SIN_AVISO = {"reemplazo": 0.0, "peso_no_dado": 0.0}
+
+
+def _avisos():
+    """-> (dict (evento, peleador) -> aviso, set de eventos con articulo validado).
+
+    Sale de `wiki.py`. Sin esos CSVs queda todo NaN y el modelo base no se entera.
+    """
+    if not (AVISOS.exists() and WIKI_EVENTOS.exists()):
+        return {}, set()
+    a = pd.read_csv(AVISOS)
+    tabla = {(r.evento, r.peleador): {"reemplazo": r.reemplazo,
+                                      "peso_no_dado": r.peso_no_dado}
+             for r in a.itertuples()}
+    return tabla, set(pd.read_csv(WIKI_EVENTOS)["evento"])
+
+
+def _aviso(tabla, cubiertos, evento, nombre):
+    """En un evento CON articulo, no ser mencionado significa 0: no hubo aviso.
+
+    En uno sin articulo significa NaN. Confundir las dos cosas le pondria "todo normal"
+    a media base y volveria la feature ruido con cara de dato.
+    """
+    if evento not in cubiertos:
+        return {k: np.nan for k in _SIN_AVISO}
+    return dict(tabla.get((evento, nombre), _SIN_AVISO))
+
+
+def _previos():
+    """-> dict peleador -> record pre-UFC, de `sherdog.py`. Sin el CSV queda todo NaN.
+
+    No es estado acumulado: es una condicion inicial fija por peleador, anterior a su
+    debut, asi que no se actualiza nunca y no puede filtrar futuro. Los 18 peleadores sin
+    ficha quedan en NaN — un 0 ahi seria decir "no peleo antes", que es otra cosa.
+    """
+    if not PREVIO.exists():
+        return {}
+    p = pd.read_csv(PREVIO)
+    return {r.peleador: {c: float(getattr(r, c)) for c in _PREV}
+            for r in p.itertuples()}
+
+
+def _clave(fechas, x, y):
+    """Clave simetrica (fecha + par ordenado) para cruzar con la fuente de cuotas.
+
+    El orden R/B de la fuente no tiene por que coincidir con nuestro A/B.
+    """
+    return list(zip(fechas, np.minimum(x, y), np.maximum(x, y)))
+
+
+def _props(results):
+    """P(ko), P(sub), P(dec) del mercado. Simetricas: valen igual en las dos filas.
+
+    Las props de metodo vienen por esquina (r_ko_odds / b_ko_odds); sumar las dos da la
+    probabilidad de que la pelea termine asi, sin importar quien gane — que es exactamente
+    el target del modelo de metodo. Normalizar las tres a 1 les saca el vig (proporcional:
+    el power de `_desvig` es para mercados de dos vias).
+    """
+    vacio = pd.DataFrame(np.nan, index=results.index, columns=PROPS)
+    archivo = RAW / "ufc_odds.csv"
+    if not archivo.exists():
+        return vacio
+
+    o = pd.read_csv(archivo, low_memory=False)
+    o["date"] = pd.to_datetime(o["date"], errors="coerce")
+    implicita = lambda x: np.where(x < 0, np.abs(x), 100.0) / (np.abs(x) + 100)  # noqa: E731
+    cruda = np.column_stack([
+        implicita(o[f"r_{v}_odds"].to_numpy(float)) + implicita(o[f"b_{v}_odds"].to_numpy(float))
+        for v in ("ko", "sub", "dec")])
+    with np.errstate(invalid="ignore"):
+        p = cruda / cruda.sum(axis=1, keepdims=True)
+
+    r, b = _norm(o["R_fighter"]), _norm(o["B_fighter"])
+    tabla = dict(zip(_clave(o["date"].dt.date, r, b), p))
+    a, b2 = _norm(results["fighter_a"]), _norm(results["fighter_b"])
+    fila = np.array([tabla.get(k, (np.nan,) * 3)
+                     for k in _clave(results["DATE"].dt.date, a, b2)], dtype=float)
+    return pd.DataFrame(fila, index=results.index, columns=PROPS)
+
+
 def _load():
     results = pd.read_csv(RAW / "ufc_fight_results.csv")
     events = pd.read_csv(RAW / "ufc_event_details.csv")
@@ -187,6 +323,7 @@ def _load():
     results["cinco_r"] = results["TIME FORMAT"].str.startswith("5 Rnd").astype(float)
     results = results.sort_values(["DATE", "EVENT", "BOUT"]).reset_index(drop=True)
     results[MERCADO] = _mercado(results)
+    results[PROPS] = _props(results)
 
     # stats por round -> agregado por (evento, pelea, peleador)
     sl = stats["SIG.STR."].map(_num)
@@ -216,8 +353,10 @@ def _load():
 def build():
     """-> (features_df, state_df). Una sola pasada cronologica."""
     results, agg, phys = _load()
-    empty = pd.Series({"sig_l": np.nan, "sig_a": np.nan, "td_l": np.nan,
-                       "td_a": np.nan, "sub": np.nan, "ctrl": np.nan, "kd": np.nan})
+    empty = pd.Series({c: np.nan for c in agg.columns})
+    tabla, cubiertos = _avisos()
+    previos = _previos()
+    sin_previo = {c: np.nan for c in _PREV}
     states, rows = {}, []
 
     for date, dia in results.groupby("DATE", sort=True):
@@ -232,11 +371,10 @@ def build():
                     f"leakage: {name} tiene estado con fecha {st['last_date']} "
                     f"al predecir la pelea del {date}")
                 p = phys.loc[name] if name in phys.index else None
-                snaps.append(_snapshot(
-                    st, date,
-                    p["dob"] if p is not None else pd.NaT,
-                    p["height_in"] if p is not None else np.nan,
-                    p["reach_in"] if p is not None else np.nan))
+                # la circunstancia de ESTA pelea no es estado acumulado, se pega aparte
+                snaps.append({**_snapshot(st, date, p),
+                              **_aviso(tabla, cubiertos, f["EVENT"], name),
+                              **previos.get(name, sin_previo)})
 
             # n_fights_min y n_nan son simetricos ante el intercambio, asi que valen igual
             # en las dos filas espejadas. No son features: miden cuanto sabemos de la
@@ -246,8 +384,8 @@ def build():
                     "n_fights_min": min(snaps[0]["n_fights"], snaps[1]["n_fights"]),
                     "n_nan": sum(pd.isna(snaps[0][k]) or pd.isna(snaps[1][k])
                                  for k in FEATURES)}
-            diffs = {k: snaps[0][k] - snaps[1][k] for k in FEATURES}
-            ctx = {k: f[k] for k in CONTEXTO}
+            diffs = {k: snaps[0][k] - snaps[1][k] for k in _TODAS}
+            ctx = {k: f[k] for k in (*CONTEXTO, *PROPS)}
             rows.append({**base, "fighter_a": a, "fighter_b": b, **diffs, **ctx,
                          MERCADO: f[MERCADO], "target": f["target"]})
             rows.append({**base, "fighter_a": b, "fighter_b": a,
@@ -259,7 +397,7 @@ def build():
             _update(states, agg, empty, f, date)
 
     feats = pd.DataFrame(rows)
-    return feats, _state_df(states, phys)
+    return feats, _state_df(states, phys, previos)
 
 
 def _update(states, agg, empty, f, date):
@@ -275,7 +413,8 @@ def _update(states, agg, empty, f, date):
     states[a]["opp_elo"] += eb
     states[b]["opp_elo"] += ea
 
-    for st, mio, suyo, gano in ((states[a], sa, sb, ganador), (states[b], sb, sa, 1 - ganador)):
+    for st, mio, suyo, gano in ((states[a], sa, sb, ganador),
+                                (states[b], sb, sa, 1 - ganador)):
         st["n"] += 1
         st["w"] += gano
         st["streak"] = max(st["streak"], 0) + 1 if gano else min(st["streak"], 0) - 1
@@ -283,28 +422,27 @@ def _update(states, agg, empty, f, date):
         st["finishes"] += f["finish"] * gano
         st["finished_against"] += f["finish"] * (1 - gano)
         st["last_date"] = date
-        for k, col in (("sig_l", "sig_l"), ("sig_a", "sig_a"), ("td_l", "td_l"),
-                       ("td_a", "td_a"), ("sub", "sub"), ("ctrl", "ctrl"),
-                       ("kd", "kd")):
-            v = mio[col]
-            if pd.notna(v):
-                st[k] += v
+        for k in _MIAS:
+            if pd.notna(mio[k]):
+                st[k] += mio[k]
         # lo que hizo el rival: absorbido / intentos en contra (para defensas)
-        for k, col in (("sig_abs", "sig_l"), ("sig_abs_a", "sig_a"), ("kd_abs", "kd"),
-                       ("td_abs_l", "td_l"), ("td_abs_a", "td_a")):
-            v = suyo[col]
-            if pd.notna(v):
-                st[k] += v
+        for k, col in _SUYAS.items():
+            if pd.notna(suyo[col]):
+                st[k] += suyo[col]
 
 
-def _state_df(states, phys):
-    """Estado final de cada peleador (para predecir matchups futuros sin skew)."""
+def _state_df(states, phys, previos):
+    """Estado final de cada peleador (para predecir matchups futuros sin skew).
+
+    El record pre-UFC viaja aca aunque no sea estado: es fijo por peleador y `predict`
+    arma el snapshot desde esta tabla, asi que sin esto la app serviria NaN en cuatro
+    features que el modelo si usa.
+    """
     filas = []
+    sin_previo = {c: np.nan for c in _PREV}
     for name, st in states.items():
         p = phys.loc[name] if name in phys.index else None
-        snap = _snapshot(st, st["last_date"], pd.NaT,
-                         p["height_in"] if p is not None else np.nan,
-                         p["reach_in"] if p is not None else np.nan)
+        snap = {**_snapshot(st, st["last_date"], p), **previos.get(name, sin_previo)}
         snap.pop("age"), snap.pop("days_since_last")
         filas.append({"fighter": name, **snap,
                       "dob": p["dob"] if p is not None else pd.NaT,
@@ -319,8 +457,16 @@ def main():
     feats.to_csv(OUT, index=False)
     assert feats["target"].notna().all(), "target con NaN"
     print(f"{OUT}: {len(feats)} filas ({len(feats) // 2} peleas), "
-          f"{len(FEATURES)} features, {len(estado)} peleadores, "
+          f"{len(FEATURES)} features + {len(CANDIDATAS)} candidatas, "
+          f"{len(estado)} peleadores, "
           f"odds en el {feats[MERCADO].notna().mean():.1%} de las filas")
+    # cobertura de cada candidata: un veredicto "no concluyente" con 80% de NaN es falta
+    # de datos, no falta de senial, y hay que poder distinguirlos antes de descartar
+    if CANDIDATAS:
+        print("cobertura de candidatas: " + ", ".join(
+            f"{c} {feats[c].notna().mean():.0%}" for c in CANDIDATAS))
+    print(f"circunstancia (wiki): reemplazo/peso con dato en el "
+          f"{feats['reemplazo'].notna().mean():.0%} de las filas")
 
 
 if __name__ == "__main__":
