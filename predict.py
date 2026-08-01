@@ -21,33 +21,36 @@ import pandas as pd
 MODEL = pathlib.Path("model.pkl")
 STATE = pathlib.Path("data/fighter_state.csv")
 
-# Umbrales sobre |p_modelo - p_mercado|, medidos con rolling-origin sobre 5773 peleas.
-# Log loss del modelo por tramo: <0.05 -> 0.6592 (igual que el mercado, 0.6606);
-# 0.15-0.25 -> 0.6620 vs 0.5790; >0.25 -> 0.7416 vs 0.5402, peor que una moneda.
-# Cuando eligen ganadores distintos, el mercado acierta 58.8% y el modelo 41.8%.
+# Umbrales sobre |p_modelo - p_mercado|, medidos con rolling-origin sobre 5773 peleas
+# (mercado desvigueado con power, 2026-07-31). Log loss del modelo por tramo:
+# <0.05 -> 0.6614 (igual que el mercado, 0.6641); 0.15-0.25 -> 0.6545 vs 0.5770;
+# >0.25 -> 0.7354 vs 0.5363, peor que una moneda. Cuando eligen ganadores distintos,
+# el mercado acierta 58.5% y el modelo 41.5%.
 CONFIANZA = (
     (0.05, "alta", "El modelo y el mercado coinciden. En este tramo el modelo acierta "
-                   "tanto como la casa (log loss 0.659 vs 0.661)."),
+                   "tanto como la casa (log loss 0.661 vs 0.664)."),
     (0.15, "media", "Hay una discrepancia moderada. Historicamente el mercado empieza a "
-                    "ganarle al modelo desde aca (0.599 vs 0.639)."),
+                    "ganarle al modelo desde aca (0.620 vs 0.643)."),
     (1.01, "baja", "Discrepan fuerte, y eso NO es valor: donde el modelo mas se aparta "
-                   "rinde peor que una moneda (0.742) y la casa acierta 58.8% contra "
-                   "41.8% del modelo. Es senal de que el mercado sabe algo que el "
+                   "rinde peor que una moneda (0.735) y la casa acierta 58.5% contra "
+                   "41.5% del modelo. Es senal de que el mercado sabe algo que el "
                    "modelo no ve."),
 )
 
 
 # ROI de flat-bet out-of-sample (train.apostabilidad, 5773 peleas con cuota REAL, vig
 # mediano 3.6%), apostando todo lado con EV = p_modelo*cuota - 1 > 0, por tramo:
-#   alta      +3.66%  IC95% [-3.93%, +11.46%]  n=959   <- lo unico que no pierde medido
-#   media     -7.35%  IC95% [-12.27%, -2.35%]  n=2413
-#   baja      -7.34%  IC95% [-15.17%, +0.72%]  n=1300
-#   muy baja  -6.48%  IC95% [-19.69%, +7.35%]  n=573
+#   alta      +5.82%  IC95% [-1.97%, +13.22%]  n=887   <- lo unico que no pierde medido
+#   media     -6.95%  IC95% [-12.23%, -1.78%]  n=2329
+#   baja      -8.33%  IC95% [-15.98%, -0.23%]  n=1366
+#   muy baja  -7.67%  IC95% [-19.94%, +5.65%]  n=663
 # Todo junto: -5.24%. Control siempre-favorito: -3.35%; siempre-underdog: -6.73%.
 # O sea: el unico tramo apostable es donde el modelo YA coincide con la casa, y ni ahi
-# el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada.
+# el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada —
+# y encima es el mejor de 4 tramos elegido a posteriori, o sea que la evidencia real
+# es mas debil todavia. El Historial de la app (CLV) es el forward test que decide.
 APOSTABLE = "alta"
-ROI_APOSTABLE = "+3.7% IC95% [-3.9%, +11.5%] sobre 959 apuestas"
+ROI_APOSTABLE = "+5.8% IC95% [-2.0%, +13.2%] sobre 887 apuestas"
 
 
 def _normalizar(s):
@@ -96,10 +99,42 @@ def _factores(sub, X, n=4):
             for i in np.argsort(-np.abs(aporte))[:n]]
 
 
+def _desvig(pa, pb, iters=60):
+    """Probabilidades implicitas con vig -> justas, metodo power (k: pa^k + pb^k = 1).
+
+    El proporcional reparte el vig parejo y sobreestima al underdog — el sesgo
+    favorito-longshot que el README documenta. Medido sobre 6916 peleas con cuota:
+    power gana -0.0009 de log loss (IC95% [-0.0015, -0.0003]), y -0.0048 en los
+    favoritos de >75%, que es donde se juega el EV.
+    """
+    pa, pb = np.asarray(pa, float), np.asarray(pb, float)
+    lo, hi = np.ones_like(pa), np.full_like(pa, 20.0)
+    for _ in range(iters):
+        k = (lo + hi) / 2
+        arriba = pa ** k + pb ** k > 1
+        lo, hi = np.where(arriba, k, lo), np.where(arriba, hi, k)
+    k = (lo + hi) / 2
+    return pa ** k / (pa ** k + pb ** k)
+
+
 def _mercado(cuotas):
     """(cuota_a, cuota_b) decimales -> P(gana A) sin vig."""
-    pa, pb = 1 / cuotas[0], 1 / cuotas[1]
-    return pa / (pa + pb)
+    return float(_desvig(1 / cuotas[0], 1 / cuotas[1]))
+
+
+def metodo(modelo, wc_lbs=np.nan, mujer=np.nan, cinco_r=np.nan):
+    """-> {"ko", "sub", "dec"}: como suele terminar una pelea de ese contexto.
+
+    No pide peleadores a proposito: esta medido (ver train.entrenar_metodo) que el
+    historial de los dos no agrega nada sobre la division. Con NaN predice el base
+    rate global, asi que se puede llamar sin saber el contexto.
+    """
+    sub = modelo.get("metodo")
+    if sub is None:
+        return None  # model.pkl anterior a este modelo
+    X = pd.DataFrame([[wc_lbs, mujer, cinco_r]], columns=sub["cols"])
+    p = sub["hgb"].predict_proba(X)[0]
+    return dict(zip(sub["hgb"].classes_, (float(x) for x in p)))
 
 
 def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None):
@@ -114,17 +149,25 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None)
     hoy = pd.Timestamp.today().normalize() if hoy is None else pd.Timestamp(hoy)
 
     base = modelo["sin_odds"]
-    filas = []
+    filas, mezclados = [], []
     for nombre in (nombre_a, nombre_b):
         clave = _normalizar(nombre)
         if clave not in estado.index:
             raise ValueError(f"No encuentro a '{nombre}' en el dataset.")
-        filas.append(_snapshot(estado.loc[clave], hoy, base["cols"]))
+        fila = estado.loc[clave]
+        if fila.get("homonimo"):
+            mezclados.append(nombre)
+        filas.append(_snapshot(fila, hoy, base["cols"]))
 
     diffs = [filas[0][k] - filas[1][k] for k in base["cols"]]
     X = pd.DataFrame([diffs, [-d for d in diffs]], columns=base["cols"])
     p_a = _prob(base, X)
     out = {"p_a": p_a, "p_b": 1 - p_a, "factores": _factores(base, X)}
+    if mezclados:
+        out["aviso"] = (
+            "Hubo más de un peleador llamado " + " y ".join(mezclados) + " en UFC, y "
+            "el dataset no los distingue: este historial mezcla a los dos, así que la "
+            "predicción no es confiable.")
     if cuotas is None:
         return out
 
@@ -166,6 +209,8 @@ def main():
         print(e)
         sys.exit(1)
 
+    if "aviso" in r:
+        print(f"OJO: {r['aviso']}\n")
     print(f"modelo (sin odds)   {a}: {r['p_a']:.1%} | {b}: {r['p_b']:.1%}")
     if cuotas:
         print(f"mercado             {a}: {r['p_a_mercado']:.1%}")

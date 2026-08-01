@@ -73,6 +73,19 @@ def entrenar(d, cols):
     return hgb, _lineal().fit(d[cols], d["target"])
 
 
+def entrenar_metodo(d):
+    """Como termina la pelea (ko/sub/dec), solo desde el contexto.
+
+    Medido (rolling-origin 20 folds, 2026-07-31): el contexto le gana al base rate
+    (-0.0142, IC95% [-0.0216, -0.0069]) y el historial de los peleadores NO agrega
+    nada encima — los diffs son no concluyentes (+0.0034) y las sumas simetricas de
+    finish/kd/sub empeoran (+0.0252, se descarta). La probabilidad de metodo es una
+    propiedad de la division, no del matchup.
+    """
+    return HistGradientBoostingClassifier(**PARAMS).fit(
+        d[features.CONTEXTO], d["metodo"])
+
+
 def probas(modelos, d, cols):
     """-> {nombre: P(gana A)} por pelea unica, promediando ambas orientaciones."""
     hgb, lineal = modelos
@@ -272,8 +285,18 @@ def main():
     apostabilidad(pd.concat(meta, ignore_index=True), acum["blend"],
                   acum["mercado"], ys)
 
+    # --- metodo (ko/sub/dec): reporte sobre test, con el base rate como vara
+    m_met = entrenar_metodo(partes["train"])
+    p_met = m_met.predict_proba(partes["test"][features.CONTEXTO])
+    p_met = (p_met[0::2] + p_met[1::2]) / 2
+    y_met = partes["test"]["metodo"].to_numpy()[0::2]
+    frec = (partes["train"]["metodo"].iloc[0::2]
+            .value_counts(normalize=True).reindex(m_met.classes_).to_numpy())
+    print(f"\nmetodo (test): log loss {log_loss(y_met, p_met, labels=m_met.classes_):.4f}"
+          f" | base rate {log_loss(y_met, np.tile(frec, (len(y_met), 1)), labels=m_met.classes_):.4f}")
+
     # --- deploy: aprenden de TODO el historial, no solo de la ventana train
-    bundle = {}
+    bundle = {"metodo": {"hgb": entrenar_metodo(df), "cols": list(features.CONTEXTO)}}
     for nombre, c in (("sin_odds", cols), ("con_odds", con_odds)):
         hgb, lineal = entrenar(df, c)
         p_ida = lineal.predict_proba(df[c].head(2))[:, 1]

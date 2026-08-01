@@ -38,10 +38,12 @@ O desde la terminal, sin app:
 | `features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores** (win rate, racha, golpes por minuto, takedowns, control, finish rate, descanso, edad, alcance, Elo, knockdowns propios y recibidos, defensas de striking y derribo, tasa de veces finalizado, Elo promedio de los rivales). Cada pelea genera dos filas: diffs A−B y la espejada B−A, para eliminar el sesgo de esquina roja. | `data/features.csv` |
 | `train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal (test = últimos 2 años, validación = los 2 anteriores). Sin calibración: re-verificada como dañina con el protocolo nuevo. Decide con **rolling-origin de 20 folds (7195 peleas) + IC95% del delta pareado**, no con el delta de una sola ventana. Imprime train loss junto a val/test y una tabla de confiabilidad. El `model.pkl` final se re-entrena con todo el historial. | `model.pkl`, `data/fighter_state.csv` |
 | `predict.py` | `predict(a, b, cuotas=None) -> dict`. Sirve el mismo promedio de modelos que se evalúa, en las dos orientaciones, así el resultado no depende del orden. Con las dos cuotas agrega la probabilidad del mercado, la del modelo alimentado con ella, el nivel de confianza y los factores que mueven la predicción. | — |
-| `cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. | — |
-| `betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. `python betano.py` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json` |
-| `app.py` | UI Streamlit con dos pestañas. **Matchup**: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, el nivel de confianza con su motivo, y las features que más mueven la predicción. **Cartelera**: elegís un evento próximo y ves cada pelea con su predicción y la cuota de Betano ya resuelta, sin tipear nada. | — |
-| `test_app.py` | `python test_app.py`. Verifica que la predicción no dependa del orden, que la confianza salga del tramo correcto, que la cartelera y las cuotas de Betano se parseen bien, y que la app renderice con y sin cuotas. No toca la red. | — |
+| `cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. Registra el primer avistaje de cada pelea en `data/cartelera_hist.csv`, que es lo único que permite detectar reemplazos tardíos (pelea anunciada a días del evento) — justo la información que el mercado tiene y el modelo no. | `data/cartelera_hist.csv` |
+| `betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. Cada corrida exitosa deja un tick por pelea en `data/betano_hist.csv`: el histórico apertura→cierre del que sale el CLV. `python betano.py` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json`, `data/betano_hist.csv` |
+| `ledger.py` | La primera vez que una pelea aparece con cuota, la predicción queda congelada en `data/ledger.csv` (simula "apostar apenas abre el mercado"). `evaluar()` la cruza después con el resultado real y con el último tick de Betano antes del evento: ROI real de las candidatas y **CLV** (closing line value), que es el único predictor confiable de rentabilidad y converge en decenas de apuestas, no en miles. Es la pestaña **Historial** de la app. | `data/ledger.csv` |
+| `oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno (tier gratis: 500 requests/mes, la app cachea 30 min). La mediana desvigueada de varias casas es la probabilidad "verdadera"; si la mejor cuota disponible paga más que eso, la app lo marca como **línea desalineada** — la única señal de EV que no necesita que el modelo le gane a nadie. Sin key devuelve `{}` y la app sigue igual. | — |
+| `app.py` | UI Streamlit con tres pestañas. **Matchup**: elegís dos peleadores y las dos cuotas decimales, y ves las tres probabilidades, la cuota mínima para que haya valor, el nivel de confianza con su motivo, y las features que más mueven la predicción. **Cartelera**: elegís un evento próximo y ves cada pelea con su predicción, la cuota de Betano ya resuelta, el método probable por división y el consenso multi-casa si hay `ODDS_API_KEY`. **Historial**: el forward test — cada predicción congelada, su resultado y el CLV. | — |
+| `test_app.py` | `python test_app.py`. Verifica que la predicción no dependa del orden, que la confianza salga del tramo correcto, que la cartelera, Betano y The Odds API se parseen bien, que el archivado y el ledger congelen y evalúen (dedup, resultado, CLV), que los homónimos avisen, que el método sea coherente por división, y que la app renderice con y sin cuotas. No toca la red. | — |
 
 ### De dónde salen las peleas que todavía no ocurrieron
 
@@ -66,7 +68,12 @@ muestra igual, sin cuota ni nivel de confianza.
 
 Los debutantes se listan sin predicción: sin historial en UFC no hay features que
 alimentar. Son ~30% de las peleas anunciadas, casi todas de Contender Series y de las
-carteleras europeas.
+carteleras europeas. (El método por división sí se muestra: no depende del par.)
+
+Otra trampa del dataset: ufcstats tiene 8 nombres repetidos que son peleadores
+distintos (dos "Bruno Silva", dos "Jean Silva"…) y las peleas solo traen el nombre,
+así que sus historiales quedan mezclados sin arreglo posible. La app y el CLI lo
+avisan en vez de servir esa predicción contaminada en silencio.
 
 ## Resultados actuales
 
@@ -84,33 +91,48 @@ orientaciones, igual que `predict.py`:
 
 ## El mercado le gana al modelo, y por mucho
 
-Sobre las 5679 peleas del rolling-origin que tienen cuota:
+Sobre las 5679 peleas del rolling-origin que tienen cuota (la implícita se desviguea
+con el **método power**, no proporcional: medido mejor sobre 6916 peleas, −0.0009 de
+log loss con IC95% [−0.0015, −0.0003], y −0.0048 en favoritos de >75%, que es donde
+el proporcional infla al underdog):
 
 | | log loss |
 |---|---|
 | modelo (sin odds) | 0.6608 |
-| **mercado (implícita sin vig)** | **0.6115** |
-| modelo alimentado con la cuota | 0.6119 |
+| **mercado (implícita sin vig)** | **0.6107** |
+| modelo alimentado con la cuota | 0.6123 |
 
-El mercado le gana al modelo por 0.0493 (IC95% [−0.0571, −0.0418]), y meterle la cuota al
-modelo **no mejora sobre la cuota sola** (+0.0005, IC95% [−0.0031, +0.0042]). O sea: las 22
+El mercado le gana al modelo por 0.0500 (IC95% [−0.0584, −0.0421]), y meterle la cuota al
+modelo **no mejora sobre la cuota sola** (+0.0016, IC95% [−0.0020, +0.0054]). O sea: las 22
 features no aportan nada que la línea de cierre no tenga ya.
 
-Por eso esto no sirve para buscar valor. Sirve como **segunda opinión independiente**, y
-la discrepancia con el mercado es la señal útil — pero al revés de lo que uno esperaría:
+Por eso esto no sirve para buscar valor contra el cierre. Sirve como **segunda opinión
+independiente**, y la discrepancia con el mercado es la señal útil — pero al revés de lo
+que uno esperaría:
 
 | discrepancia \|modelo−mercado\| | peleas | log loss modelo | log loss mercado |
 |---|---|---|---|
-| < 0.05 | 1488 | 0.6592 | 0.6606 |
-| 0.05 – 0.15 | 2413 | 0.6415 | 0.6169 |
-| 0.15 – 0.25 | 1299 | 0.6620 | 0.5790 |
-| > 0.25 | 573 | **0.7416** | 0.5402 |
+| < 0.05 | 1413 | 0.6614 | 0.6641 |
+| 0.05 – 0.15 | 2332 | 0.6426 | 0.6200 |
+| 0.15 – 0.25 | 1365 | 0.6545 | 0.5770 |
+| > 0.25 | 663 | **0.7354** | 0.5363 |
 
 Cuando coinciden, el modelo vale tanto como la casa. Cuando discrepan fuerte, el modelo
-rinde **peor que una moneda** y la casa gana: en las 1745 peleas donde eligen ganadores
-distintos, la casa acierta 58.8% y el modelo 41.8%. Discrepar no es encontrar valor, es
+rinde **peor que una moneda** y la casa gana: en las 1693 peleas donde eligen ganadores
+distintos, la casa acierta 58.5% y el modelo 41.5%. Discrepar no es encontrar valor, es
 la señal de que al modelo le falta información que el mercado sí tiene. De ahí sale el
 nivel de confianza que muestra la app.
+
+### El asterisco importante: eso es contra la línea de cierre
+
+Las odds históricas son (casi seguro) líneas de cierre — las más afiladas que existen.
+Pero nadie apuesta contra el cierre: se apuesta contra la línea de Betano días antes,
+que incorpora menos información. **Si el modelo le gana a la línea de apertura es una
+pregunta distinta, y hasta ahora no se podía responder** porque nadie guardaba esas
+líneas. Ahora sí: `betano_hist.csv` acumula cada tick de cuota y el ledger congela la
+predicción al primer avistaje. En unos meses de datos, la pestaña **Historial** responde
+con CLV si apostar temprano le gana al cierre — que es la única forma realista de que
+este modelo genere valor.
 
 ### Y si eso se apuesta, ¿cuánto rinde?
 
@@ -120,28 +142,47 @@ nivel de confianza que muestra la app.
 
 | tramo \|modelo−mercado\| | apuestas | ROI | IC95% |
 |---|---|---|---|
-| < 0.05 (confianza alta) | 959 | **+3.66%** | [−3.93%, +11.46%] |
-| 0.05 – 0.15 | 2413 | −7.35% | [−12.27%, −2.35%] |
-| 0.15 – 0.25 | 1300 | −7.34% | [−15.17%, +0.72%] |
-| > 0.25 | 573 | −6.48% | [−19.69%, +7.35%] |
+| < 0.05 (confianza alta) | 887 | **+5.82%** | [−1.97%, +13.22%] |
+| 0.05 – 0.15 | 2329 | −6.95% | [−12.23%, −1.78%] |
+| 0.15 – 0.25 | 1366 | −8.33% | [−15.98%, −0.23%] |
+| > 0.25 | 663 | −7.67% | [−19.94%, +5.65%] |
 | todos | 5245 | −5.24% | [−8.67%, −1.67%] |
-| control: siempre el favorito | 6060 | −3.35% | [−5.24%, −1.50%] |
-| control: siempre el underdog | 5486 | −6.73% | [−10.49%, −2.90%] |
+| control: siempre el favorito | 6060 | −3.35% | [−5.23%, −1.49%] |
+| control: siempre el underdog | 5486 | −6.73% | [−10.46%, −2.85%] |
 
 El único tramo que no pierde es donde el modelo **ya coincide** con la casa, y ni ahí el
-IC95% se despega de cero: es break-even con esperanza, no una ventaja probada. Es el único
-caso que la app marca como *candidata a valor*. El resto es la trampa: donde el EV del
-modelo se ve más lindo (porque se aparta del mercado) es exactamente donde pierde 7%.
+IC95% se despega de cero: es break-even con esperanza, no una ventaja probada — y como
+además es el mejor de 4 tramos elegido a posteriori, la evidencia real es más débil aún
+de lo que el IC sugiere. Es el único caso que la app marca como *candidata a valor*. El
+resto es la trampa: donde el EV del modelo se ve más lindo (porque se aparta del mercado)
+es exactamente donde pierde 7%. La vara que decide de verdad es el forward test del
+**Historial**: si las candidatas no muestran CLV positivo con datos reales, se retira la
+etiqueta.
 
-Subir el umbral de EV no ayuda — con EV > 5% el tramo alta cae a +1.24% sobre 348
-apuestas, y con EV > 10% a −12.82% sobre 69. Por eso la regla es EV > 0 y nada más.
+Subir el umbral de EV no ayuda — está medido que filtrar por EV alto empeora. Por eso la
+regla es EV > 0 y nada más.
 
-## Por qué no sirve tocar los hiperparámetros
+## Cómo suele terminar la pelea
+
+La app y `cartelera.py` muestran P(KO/TKO), P(sumisión) y P(decisión) por pelea. El
+hallazgo medido (rolling-origin de 20 folds) es incómodo pero útil: **el método depende
+de la división, no del par**. El contexto solo (peso, género, 5 rounds) le gana al base
+rate (−0.0142, IC95% [−0.0216, −0.0069]); agregar el historial de los peleadores no
+suma nada (diffs: no concluyente) y las sumas simétricas de finish/KD/sub directamente
+empeoran (+0.0252). Por eso el modelo de método no pide peleadores, y funciona igual
+para los debuts. Sobre test: log loss 1.0057 vs 1.0167 del base rate.
+
+## Por qué no sirve tocar los hiperparámetros (ni casi nada del modelo)
 
 Está medido: entre 50 y 800 árboles el train loss cae de 0.6371 a 0.4684 mientras el de
 validación se mueve de 0.6613 a 0.6701. Toda la capacidad extra se va en memorizar. No es
 under- ni overfitting: es **techo de información**. La única forma de mejorar es meter
 información que hoy no está, no reconfigurar el modelo.
+
+La ronda del 2026-07-31 lo confirmó por cuarta vía: interacciones ofensa×defensa
+antisimétricas, contexto de división para el ganador, decay temporal de las stats
+(λ=0.85 y 0.93/año) y Elo con K por finish (40/28) salieron **todas no concluyentes**
+en el rolling-origin de 20 folds. Cero líneas de eso quedaron en el modelo de ganador.
 
 Corolario para medir: el SE del delta pareado entre dos modelos sobre una ventana de 999
 peleas es 0.0028, así que el viejo umbral de "queda si mejora ≥ 0.003" era un efecto de
@@ -159,7 +200,7 @@ se calculan todas antes de aplicar sus updates.
 
 ## Alcance
 
-Solo ganador (no método ni rondas), solo UFC, corre local.
+Ganador + método (KO/sumisión/decisión, por división), solo UFC, corre local.
 
 Las cuotas entran como feature de un segundo modelo, que convive con el que no las usa —
 la app muestra los dos. El modelo sin odds es la opinión independiente; el de con odds

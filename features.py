@@ -14,6 +14,8 @@ import re
 import numpy as np
 import pandas as pd
 
+import predict
+
 RAW = pathlib.Path("data/raw")
 OUT = pathlib.Path("data/features.csv")
 K_ELO = 32
@@ -26,6 +28,13 @@ FEATURES = [
     "kd_per15", "kd_against_per15", "finished_against_rate",
     "td_def", "str_def", "avg_opp_elo",
 ]
+# Contexto simetrico de la pelea (vale igual en las dos filas espejadas). Para el
+# target de ganador esta medido no concluyente (rolling-origin 2026-07-31), pero es
+# el insumo principal del modelo de metodo: las tasas de finish cambian por division.
+CONTEXTO = ["wc_lbs", "mujer", "cinco_r"]
+_LBS = [("Strawweight", 115), ("Flyweight", 125), ("Bantamweight", 135),
+        ("Featherweight", 145), ("Lightweight", 155), ("Welterweight", 170),
+        ("Middleweight", 185), ("Light Heavyweight", 205), ("Heavyweight", 265)]
 # El mercado no sale del historial del peleador: es una fuente aparte, y por eso vive en
 # su propio conjunto. Se entrena un modelo con cada uno para poder mostrar los dos.
 MERCADO = "mkt_logit"
@@ -122,7 +131,7 @@ def _mercado(results):
     # 100/(x+100) cuando x == -100 exacto (np.where evalua las dos ramas igual).
     implicita = lambda x: np.where(x < 0, np.abs(x), 100.0) / (np.abs(x) + 100)  # noqa: E731
     pr, pb = implicita(o["R_odds"].to_numpy(float)), implicita(o["B_odds"].to_numpy(float))
-    p_r = pr / (pr + pb)
+    p_r = predict._desvig(pr, pb)  # power, no proporcional: medido mejor (ver predict)
 
     # clave simetrica (fecha + par ordenado): el orden R/B de la fuente no tiene por que
     # coincidir con nuestro A/B, asi que se guarda la probabilidad del nombre menor
@@ -163,6 +172,19 @@ def _load():
     results["minutes"] = results.apply(_fight_minutes, axis=1)
     results["finish"] = results["METHOD"].str.contains(
         "KO/TKO|Submission", na=False, regex=True).astype(int)
+    # como termino: el target del modelo de metodo (simetrico ante el espejado)
+    results["metodo"] = np.where(
+        results["METHOD"].str.contains("KO/TKO", na=False), "ko",
+        np.where(results["METHOD"].str.contains("Submission", na=False), "sub", "dec"))
+    # contexto de la pelea ("Light Heavyweight" antes que "Heavyweight": el orden del
+    # scan importa). Catch/Open Weight quedan NaN.
+    lbs = pd.Series(np.nan, index=results.index)
+    for nombre, peso in _LBS:
+        lbs = lbs.mask(lbs.isna() & results["WEIGHTCLASS"].str.contains(nombre, na=False),
+                       float(peso))
+    results["wc_lbs"] = lbs
+    results["mujer"] = results["WEIGHTCLASS"].str.contains("Women", na=False).astype(float)
+    results["cinco_r"] = results["TIME FORMAT"].str.startswith("5 Rnd").astype(float)
     results = results.sort_values(["DATE", "EVENT", "BOUT"]).reset_index(drop=True)
     results[MERCADO] = _mercado(results)
 
@@ -184,6 +206,10 @@ def _load():
         "reach_in": phys["REACH"].map(_inches),
         "dob": pd.to_datetime(phys["DOB"], format="%b %d, %Y", errors="coerce"),
     })
+    # ufcstats tiene 8 nombres repetidos (dos "Bruno Silva" distintos, etc.) y las
+    # peleas solo traen el nombre: sus historiales quedan mezclados sin arreglo posible.
+    # El flag deja avisarlo en vez de servir una prediccion contaminada en silencio.
+    phys["homonimo"] = phys.index.map(tott["FIGHTER"].value_counts()) > 1
     return results, agg, phys
 
 
@@ -216,15 +242,16 @@ def build():
             # en las dos filas espejadas. No son features: miden cuanto sabemos de la
             # pelea, y de ahi sale el nivel de confianza que se muestra en la app.
             base = {"date": date, "event": f["EVENT"], "bout": f["BOUT"],
-                    "fight_id": f"{f['EVENT']}|{f['BOUT']}",
+                    "fight_id": f"{f['EVENT']}|{f['BOUT']}", "metodo": f["metodo"],
                     "n_fights_min": min(snaps[0]["n_fights"], snaps[1]["n_fights"]),
                     "n_nan": sum(pd.isna(snaps[0][k]) or pd.isna(snaps[1][k])
                                  for k in FEATURES)}
             diffs = {k: snaps[0][k] - snaps[1][k] for k in FEATURES}
-            rows.append({**base, "fighter_a": a, "fighter_b": b, **diffs,
+            ctx = {k: f[k] for k in CONTEXTO}
+            rows.append({**base, "fighter_a": a, "fighter_b": b, **diffs, **ctx,
                          MERCADO: f[MERCADO], "target": f["target"]})
             rows.append({**base, "fighter_a": b, "fighter_b": a,
-                         **{k: -v for k, v in diffs.items()},
+                         **{k: -v for k, v in diffs.items()}, **ctx,
                          MERCADO: -f[MERCADO], "target": 1 - f["target"]})
             pendientes.append(f)
 
@@ -281,7 +308,8 @@ def _state_df(states, phys):
         snap.pop("age"), snap.pop("days_since_last")
         filas.append({"fighter": name, **snap,
                       "dob": p["dob"] if p is not None else pd.NaT,
-                      "last_date": st["last_date"]})
+                      "last_date": st["last_date"],
+                      "homonimo": bool(p["homonimo"]) if p is not None else False})
     return pd.DataFrame(filas).sort_values("fighter")
 
 

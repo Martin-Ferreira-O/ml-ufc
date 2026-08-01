@@ -179,6 +179,67 @@ segundo modelo que convive con el que no las usa.
   dos filas espejadas), no features. Sirvieron para medir lo de arriba y quedan para poder
   re-medirlo. No entran al modelo.
 
+## Ronda de infraestructura de mercado y modelado (2026-07-31)
+
+**Reencuadre aprobado por el usuario:** las conclusiones "el mercado le gana" están
+medidas contra líneas de cierre; nadie apuesta contra el cierre. La prioridad pasó de
+mejorar el modelo (techo de información confirmado) a la infraestructura que hace medible
+si hay valor contra la línea de **apertura**.
+
+- **Archivado de cuotas y carteleras.** `betano.cuotas()` deja un tick por pelea en
+  `data/betano_hist.csv` (apertura→cierre); `cartelera.proximas()` registra el primer
+  avistaje de cada pelea en `data/cartelera_hist.csv` (detección futura de reemplazos
+  tardíos). Append-only, sin dependencias nuevas.
+- **Ledger + forward test (`ledger.py`, pestaña Historial).** La primera predicción con
+  cuota queda congelada; al ocurrir la pelea se cruza con el resultado y el último tick
+  (cierre) → ROI real de candidatas y **CLV**. Es la vara que decide si la etiqueta
+  "candidata" sobrevive: el backtest del tramo alta es el mejor de 4 tramos elegido a
+  posteriori, con IC cruzando cero — evidencia débil que solo el CLV real puede firmar.
+- **Devig power reemplaza al proporcional** en `features._mercado` y `predict._mercado`.
+  Medido como predictor sobre 6916 peleas: −0.0009 (IC95% [−0.0015, −0.0003]), y
+  −0.0048 en favoritos >75%. El proporcional inflaba al underdog (sesgo
+  favorito-longshot). `train._cuotas_con_vig` no cambia: el ROI se paga con cuota real.
+  Números re-derivados: mercado 0.6107, gap 0.0500, tramo alta +5.82% (n=887).
+- **Consenso multi-casa (`oddsapi.py`).** The Odds API con `ODDS_API_KEY` opcional:
+  mediana desvigueada = probabilidad de mercado; mejor cuota > consenso → "línea
+  desalineada" en la app. Es la única señal de EV que no requiere ganarle al mercado
+  con un modelo. Sin key devuelve `{}`.
+- **Cuota mínima (1/p) en la app**, para line-shopping manual contra cualquier casa.
+- **Homónimos avisados.** 8 nombres de ufcstats son 2 peleadores distintos cada uno
+  (dos "Bruno Silva" con 23 peleas fusionadas, dos "Jean Silva" activos, etc.); las
+  peleas solo traen el nombre → historiales mezclados sin arreglo posible. Flag
+  `homonimo` en `fighter_state.csv` + aviso en predict/app/CLI. No se excluyen del
+  train: ~46 filas de 17278, y excluirlas no des-mezcla nada.
+- **Bug de la app:** si ESPN no respondía, `_carteleras()` propagaba la excepción y el
+  warning prometido nunca se mostraba. try/except → `[]`.
+
+### Ronda de modelado (protocolo de 20 folds): todo no concluyente
+
+Candidatas medidas con `rolling_origin` + `comparar` contra el blend actual (7195
+peleas). **Ninguna queda; cero líneas en el modelo de ganador:**
+
+- interacciones ofensa×defensa antisimétricas (`a.of·(1−b.def) − b.of·(1−a.def)` para
+  striking y TD): +0.0000 [−0.0010, +0.0010]
+- contexto simétrico división/género/5R: −0.0001 [−0.0007, +0.0005]
+- decay temporal de stats, λ=0.85/año: −0.0000 [−0.0014, +0.0014]; λ=0.93: ídem
+- Elo K-finish 40/28 (re-test del descarte de la ronda vieja, ahora con protocolo
+  nuevo): −0.0010 [−0.0021, +0.0001] — el más cercano, pero toca cero
+
+Cuarta confirmación independiente del techo de información.
+
+### Modelo de método (ko/sub/dec): el contexto es todo
+
+- **Queda `metodo` = HistGB sobre `CONTEXTO` (wc_lbs, mujer, cinco_r) solamente.**
+  Rolling-origin: contexto vs base rate **−0.0142 [−0.0216, −0.0069], queda**; diffs de
+  peleadores encima: +0.0034, no concluyente; sumas simétricas de finish/kd/sub (la
+  representación "correcta" para un target simétrico): **+0.0252, se descarta**.
+  Conclusión medida: el método es una propiedad de la división, no del matchup.
+  Por eso `predict.metodo()` no pide peleadores y sirve también para debuts.
+- Serving: `cartelera.contexto()` mapea el texto de peso de ESPN a (lbs, mujer) y
+  aproxima `cinco_r` con "es el main event". Sin contexto → NaN → base rate global.
+- `features.csv` gana las columnas `metodo` (target) y `CONTEXTO`; `FEATURES` del
+  ganador queda en las 22 de siempre.
+
 ## Hechos externos verificados (2026-07-30)
 
 - **`ufcstats.com` está detrás de un challenge JS de proof-of-work.** No se puede scrapear

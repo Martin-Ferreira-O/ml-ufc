@@ -13,6 +13,8 @@ sigue andando sin cuotas. Para arreglarlo:
     python betano.py           # baja el estado crudo a data/betano_raw.json y lo resume
 """
 
+import csv
+import datetime
 import difflib
 import json
 import pathlib
@@ -35,6 +37,7 @@ HEADERS = {
     "Referer": f"{BASE}/sport/mma/",
 }
 CRUDO = pathlib.Path("data/betano_raw.json")
+HIST = pathlib.Path("data/betano_hist.csv")
 
 # Errores esperables de una fuente que no controlamos: red caida, HTML sin el ancla,
 # JSON cortado, o que le hayan cambiado la forma.
@@ -103,6 +106,21 @@ def _parsear(estado):
     return tabla
 
 
+def _archivar(tabla, ahora=None):
+    """Un tick por par y corrida: el historico apertura -> cierre que hace medible el
+    CLV y el vig real de Betano. Los mercados de rounds entran igual: son las odds de
+    props que ninguna otra fuente guarda."""
+    HIST.parent.mkdir(parents=True, exist_ok=True)
+    nuevo = not HIST.exists()
+    ts = (ahora or datetime.datetime.now()).isoformat(timespec="seconds")
+    with HIST.open("a", newline="") as f:
+        w = csv.writer(f)
+        if nuevo:
+            w.writerow(["ts", "a", "b", "cuota_a", "cuota_b"])
+        for (a, b), (ca, cb) in sorted(tabla.items()):
+            w.writerow([ts, a, b, ca, cb])
+
+
 def cuotas():
     """Las cuotas de todas las carteleras UFC, o {} si Betano no responde. No levanta."""
     try:
@@ -116,6 +134,8 @@ def cuotas():
             tabla.update(_parsear(_estado(ruta)))
         except ROTO:
             continue
+    if tabla:
+        _archivar(tabla)
     return tabla
 
 

@@ -7,6 +7,7 @@ con y sin cuotas. Requiere `model.pkl` y `data/fighter_state.csv` (los genera tr
 
 import betano
 import cartelera
+import oddsapi
 import predict
 
 A, B = "Khamzat Chimaev", "Sean Strickland"
@@ -137,6 +138,132 @@ def check_apuesta():
     assert r["confianza"] == "alta" and r["apuesta"] is None, r
 
 
+# Payload de The Odds API recortado: dos casas cotizando la misma pelea.
+ODDSAPI = [{
+    "home_team": "Jalin Turner", "away_team": "Kaue Fernandes",
+    "bookmakers": [
+        {"key": "pinnacle", "markets": [{"key": "h2h", "outcomes": [
+            {"name": "Jalin Turner", "price": 2.30},
+            {"name": "Kaue Fernandes", "price": 1.62}]}]},
+        {"key": "otra", "markets": [{"key": "h2h", "outcomes": [
+            {"name": "Jalin Turner", "price": 2.10},
+            {"name": "Kaue Fernandes", "price": 1.70}]}]},
+    ]}]
+
+
+def check_oddsapi():
+    """Consenso multi-casa: mediana desvigueada, mejor cuota por lado, orientacion."""
+    t = oddsapi._parsear(ODDSAPI)
+    fila = t[("jalin turner", "kaue fernandes")]
+    assert fila["casas"] == 2 and fila["mejor"] == (2.30, 1.70), fila
+    assert 0 < fila["p_x"] < 0.5, fila         # Turner es el underdog en ambas casas
+
+    r = oddsapi.buscar(t, "Kauê Fernandes", "Jalin Turner")   # acento y orden dados vuelta
+    assert r and abs(r["p_a"] - (1 - fila["p_x"])) < 1e-12, r
+    assert r["mejor"] == (1.70, 2.30), r
+    assert oddsapi.buscar(t, A, B) is None
+
+    import os
+    key = os.environ.pop("ODDS_API_KEY", None)
+    try:
+        assert oddsapi.cuotas() == {}          # sin key no sale a la red y no rompe
+    finally:
+        if key:
+            os.environ["ODDS_API_KEY"] = key
+
+
+def check_homonimo():
+    """Un nombre repetido en ufcstats (dos peleadores distintos) tiene que avisar."""
+    modelo, estado = predict.cargar()
+    if "homonimo" not in estado.columns:
+        print("    (estado sin columna homonimo: correr train.py para regenerarlo)")
+        return
+    r = predict.predict("Bruno Silva", B, modelo, estado)
+    assert "aviso" in r and "Bruno Silva" in r["aviso"], r.get("aviso")
+    assert "aviso" not in predict.predict(A, B, modelo, estado)
+
+
+def check_metodo():
+    """Metodo por contexto: parseo del peso de ESPN y probabilidades coherentes."""
+    modelo, _ = predict.cargar()
+    assert cartelera.contexto("Women's Strawweight", False) == (115.0, 1.0, 0.0)
+    assert cartelera.contexto("Light Heavyweight", True) == (205.0, 0.0, 1.0)
+    wc, mujer, _ = cartelera.contexto("Catch Weight", False)
+    assert wc != wc and mujer == 0.0            # sin division conocida -> NaN
+    if "metodo" not in modelo:
+        print("    (model.pkl sin metodo: correr train.py para regenerarlo)")
+        return
+    hw = predict.metodo(modelo, 265.0, 0.0, 0.0)
+    fly = predict.metodo(modelo, 125.0, 0.0, 0.0)
+    assert abs(sum(hw.values()) - 1) < 1e-9, hw
+    assert hw["ko"] > fly["ko"], (hw, fly)      # los pesados noquean mas: sanity basico
+    assert predict.metodo(modelo)               # sin contexto -> base rate, no explota
+
+
+def check_archivo():
+    """Los ticks de cuotas y el primer avistaje de cada pelea quedan en disco."""
+    import csv
+    import datetime
+    import pathlib
+    import tempfile
+
+    hist_b, hist_c = betano.HIST, cartelera.HIST
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            betano.HIST = pathlib.Path(d) / "betano_hist.csv"
+            betano._archivar({("a", "b"): (1.5, 2.5)})
+            betano._archivar({("a", "b"): (1.4, 2.7)})   # dos ticks del mismo par
+            filas = list(csv.reader(betano.HIST.open()))
+            assert len(filas) == 3 and filas[1][3] == "1.5" and filas[2][3] == "1.4", filas
+
+            cartelera.HIST = pathlib.Path(d) / "cartelera_hist.csv"
+            eventos = cartelera._parsear(CARTELERA)
+            cartelera._archivar(eventos, hoy=datetime.date(2026, 7, 1))
+            cartelera._archivar(eventos, hoy=datetime.date(2026, 7, 2))  # ya vistas
+            filas = list(csv.reader(cartelera.HIST.open()))
+            assert len(filas) == 4, filas                # header + 3 peleas, sin repetir
+            assert all(f[0] == "2026-07-01" for f in filas[1:]), filas
+    finally:
+        betano.HIST, cartelera.HIST = hist_b, hist_c
+
+
+def check_ledger():
+    """Congelado con dedup, cruce con el resultado real y CLV contra el cierre."""
+    import pathlib
+    import tempfile
+
+    import ledger
+
+    res = ledger._resultados()
+    real = res.iloc[-1]                      # una pelea que ya ocurrio de verdad
+    a, b = real["par"]
+    r = {"p_a": 0.60, "p_a_mercado": 0.55, "confianza": "alta", "apuesta": "a",
+         "ev_a": 0.08, "ev_b": -0.20}
+
+    led, hist = ledger.LEDGER, betano.HIST
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            ledger.LEDGER = pathlib.Path(d) / "ledger.csv"
+            betano.HIST = pathlib.Path(d) / "betano_hist.csv"
+            fecha = str(real["fecha"])[:10]
+            ledger.registrar("UFC Real", fecha, a, b, r, (2.00, 1.90))
+            ledger.registrar("UFC Real", fecha, a, b, r, (1.50, 2.50))  # ya congelada
+            # el cierre: un tick de Betano el dia del evento
+            betano._archivar({(a, b): (1.80, 2.10)},
+                             ahora=real["fecha"].to_pydatetime())
+
+            df, resumen = ledger.evaluar()
+            assert len(df) == 1 and df["cuota_a"].iloc[0] == 2.00, df  # dedup: la primera
+            esperado = "a" if real["ganador"] == a else "b"
+            assert df["gano"].iloc[0] == esperado, df
+            assert abs(df["clv"].iloc[0] - (2.00 / 1.80 - 1)) < 1e-9, df["clv"]
+            assert resumen["con_resultado"] == 1 and resumen["candidatas"] == 1, resumen
+            retorno = df["retorno"].iloc[0]
+            assert retorno == (1.00 if esperado == "a" else -1.0), retorno
+    finally:
+        ledger.LEDGER, betano.HIST = led, hist
+
+
 def check_cartelera():
     """Parseo de la cartelera y prediccion de peleas que pueden no ser predecibles."""
     eventos = cartelera._parsear(CARTELERA)
@@ -159,10 +286,17 @@ def check_cartelera():
 
 def check_app():
     """La app tiene que renderizar sin excepcion con y sin cuotas."""
+    import pathlib
+    import tempfile
+
     from streamlit.testing.v1 import AppTest
+
+    import ledger
 
     cartelera.proximas = lambda *a, **k: cartelera._parsear(CARTELERA)  # sin red
     betano.cuotas = lambda: betano._parsear(BETANO)                     # sin red
+    oddsapi.cuotas = lambda: oddsapi._parsear(ODDSAPI)                  # sin red
+    ledger.LEDGER = pathlib.Path(tempfile.mkdtemp()) / "ledger.csv"     # sin ensuciar
 
     for cuotas in ((1.35, 3.20), None):
         at = AppTest.from_file("app.py", default_timeout=120).run()
@@ -191,11 +325,21 @@ def check_app():
         precios = [c.value for c in at.caption if c.value.startswith("Betano —")]
         assert any("Nadie De La Nada 3.10" in c for c in precios), precios
         assert len(precios) == 2, precios       # el debutante y la pelea predecible
+        # la pelea con cuota de la cartelera quedo congelada en el ledger
+        assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
+        # el consenso multi-casa se muestra para la pelea que The Odds API cotiza
+        consensos = [c.value for c in at.caption if c.value.startswith("Consenso")]
+        assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
+        # el metodo por division aparece en cada pelea de la cartelera, debut incluido
+        if "metodo" in predict.cargar()[0]:
+            metodos = [c.value for c in at.caption
+                       if c.value.startswith("Cómo suele terminar")]
+            assert len(metodos) == 3, metodos
 
 
 if __name__ == "__main__":
     for check in (check_betano, check_simetria, check_confianza, check_apuesta,
-                  check_cartelera,
-                  check_app):
+                  check_oddsapi, check_homonimo, check_metodo, check_archivo,
+                  check_ledger, check_cartelera, check_app):
         check()
         print(f"ok  {check.__name__}")
