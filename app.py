@@ -1,8 +1,4 @@
-"""App Streamlit: el modelo, el mercado, y cuánto confiar en la diferencia.
-
-Este archivo es solo el armazón: encabezado, el sidebar del pipeline y las cuatro
-pestañas. Cada pestaña vive en `ufc/ui/tab_*.py` y lo que comparten en `ufc/ui/comunes.py`.
-"""
+"""Router Streamlit del predictor, sus datos revisados y las apuestas reales."""
 
 import subprocess
 import sys
@@ -10,7 +6,8 @@ import sys
 import streamlit as st
 
 from ufc import rutas
-from ufc.ui import comunes, tab_cartelera, tab_historial, tab_matchup, tab_predictores
+from ufc.ui import (comunes, tab_apuestas, tab_cartelera, tab_historial, tab_matchup,
+                    tab_predictores, tab_resumen)
 
 # El pipeline del README, en orden. fetch baja los CSVs, wiki y sherdog los completan,
 # features construye la tabla y train re-entrena el modelo que la app carga.
@@ -20,17 +17,7 @@ PIPELINE = ["ufc.datos.fetch", "ufc.datos.wiki", "ufc.datos.sherdog",
 st.set_page_config(page_title="Predictor UFC", page_icon=":material/sports_mma:",
                    layout="wide")
 st.title("Predictor de peleas UFC")
-st.caption("Una segunda opinión sobre la cuota de la casa, no un detector de valor.")
-# El parrafo entero es la advertencia mas importante de la app, pero leerlo una vez
-# alcanza: arriba de todo tapaba la pantalla en cada visita.
-with st.expander("Cómo funciona esto", icon=":material/help:"):
-    st.markdown(
-        "El modelo aprende del historial de ufcstats.com. Está medido que la cuota de la "
-        "casa le gana (log loss 0.611 vs 0.661 sobre 5679 peleas), así que esto es una "
-        "segunda opinión independiente, no un detector de valor: apostar todo su EV "
-        "positivo rindió −5.2% de ROI. Lo único que no perdió en el backtest es apostar "
-        "cuando el modelo coincide con la casa y aun así encuentra EV — eso es lo que se "
-        "marca como candidata.")
+st.caption("Picks revisadas, contexto de mercado y seguimiento de tus apuestas reales.")
 
 with st.sidebar:
     st.subheader("Datos")
@@ -38,6 +25,7 @@ with st.sidebar:
                "están cacheados y solo piden lo nuevo, features y train no.")
     if st.button("Actualizar y re-entrenar", icon=":material/refresh:"):
         with st.status("Actualizando…", expanded=True) as estado_run:
+            hubo_avisos = False
             for script in PIPELINE:
                 st.write(f"`{script}`")
                 # -u: sin esto Python bufferea la salida y el script parece colgado.
@@ -47,26 +35,61 @@ with st.sidebar:
                 hueco, lineas = st.empty(), []
                 for linea in p.stdout:
                     lineas.append(linea.rstrip())
+                    hubo_avisos |= linea.startswith("AVISO:")
                     hueco.code("\n".join(lineas[-12:]))
                 if p.wait():
                     estado_run.update(label=f"Falló {script}", state="error")
+                    detalle = next((linea for linea in reversed(lineas)
+                                    if linea.strip()), "Sin detalle del proceso")
+                    st.error(f"No se pudo completar la actualización. {detalle}")
                     st.stop()
-            estado_run.update(label="Listo — modelo re-entrenado", state="complete")
+            etiqueta = ("Listo — modelo re-entrenado con copias locales"
+                        if hubo_avisos else "Listo — datos actualizados y modelo re-entrenado")
+            estado_run.update(label=etiqueta, state="complete")
         st.cache_data.clear()
         st.cache_resource.clear()
 
 (modelo, estado), nombres = comunes.cargar()
-tab_m, tab_c, tab_p, tab_h = st.tabs(
-    ["Matchup", "Cartelera", "Predictores", "Historial"])
 
-with tab_m:
-    tab_matchup.render(modelo, estado, nombres)
 
-with tab_c:
-    tab_cartelera.render(modelo, estado)
+def pagina_resumen():
+    tab_resumen.render(modelo, estado)
 
-with tab_p:
+
+def pagina_cartelera():
+    tab_cartelera.render(modelo, estado, PAGINA_PREDICTORES)
+
+
+def pagina_predictores():
     tab_predictores.render(modelo, estado)
 
-with tab_h:
+
+def pagina_apuestas():
+    tab_apuestas.render(modelo, estado)
+
+
+def pagina_matchup():
+    tab_matchup.render(modelo, estado, nombres)
+
+
+def pagina_seguimiento():
     tab_historial.render()
+
+
+PAGINA_PREDICTORES = st.Page(
+    pagina_predictores, title="Predictores", icon=":material/groups:",
+    url_path="predictores")
+
+pagina = st.navigation([
+    st.Page(pagina_resumen, title="Resumen", icon=":material/dashboard:", default=True),
+    st.Page(pagina_cartelera, title="Cartelera", icon=":material/event:",
+            url_path="cartelera"),
+    PAGINA_PREDICTORES,
+    st.Page(pagina_apuestas, title="Apuestas", icon=":material/receipt_long:",
+            url_path="apuestas"),
+    st.Page(pagina_matchup, title="Matchup", icon=":material/compare_arrows:",
+            url_path="matchup"),
+    st.Page(pagina_seguimiento, title="Seguimiento", icon=":material/query_stats:",
+            url_path="seguimiento"),
+], position="top")
+pagina.run()

@@ -10,6 +10,8 @@ segunda, los debutantes quedan sin su historial regional, que es justo donde el 
 no tiene nada mas.
 """
 
+import time
+
 import requests
 
 from ufc import rutas
@@ -29,17 +31,60 @@ CSVS = [
 ODDS = ("https://raw.githubusercontent.com/shortlikeafox/ultimate_ufc_dataset/main/"
         "ufc-master.csv", "ufc_odds")
 RAW = rutas.RAW
+REINTENTOS = 3
+
+
+def _descargar(url, name, obligatorio=True):
+    """Actualiza un CSV sin destruir la copia buena si la red falla.
+
+    GitHub puede tener cortes breves de DNS/conexion. Si ya hay una descarga anterior,
+    el resto del pipeline todavia puede reconstruir y entrenar el modelo con ella. La
+    fuente de odds, ademas, es opcional por contrato.
+    """
+    destino = RAW / f"{name}.csv"
+    error = None
+    for intento in range(1, REINTENTOS + 1):
+        try:
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()
+            if not r.content:
+                raise requests.RequestException("respuesta vacia")
+            # Escribir al costado y reemplazar al final evita dejar un CSV truncado si
+            # el proceso se interrumpe durante la descarga.
+            temporal = destino.with_suffix(".csv.part")
+            temporal.write_bytes(r.content)
+            temporal.replace(destino)
+            print(f"{destino} — {len(r.content) / 1e6:.1f} MB", flush=True)
+            return True
+        except requests.RequestException as exc:
+            error = exc
+            if intento < REINTENTOS:
+                print(f"  reintento {intento}/{REINTENTOS - 1} para {name}…", flush=True)
+                time.sleep(intento)
+
+    detalle = f"{type(error).__name__}: {error}"
+    if destino.exists() and destino.stat().st_size:
+        print(f"AVISO: no se pudo actualizar {name}; se conserva la copia local "
+              f"({detalle})", flush=True)
+        return False
+    if not obligatorio:
+        print(f"AVISO: no se pudo bajar la fuente opcional {name}; se omite "
+              f"({detalle})", flush=True)
+        return False
+    raise RuntimeError(
+        f"No se pudo descargar {name} y no existe una copia local. "
+        "Revisa la conexion a internet e intenta nuevamente. "
+        f"Detalle: {detalle}"
+    ) from error
 
 
 def main():
     RAW.mkdir(parents=True, exist_ok=True)
-    fuentes = [(f"{BASE}{n}.csv", n) for n in CSVS] + [ODDS]
-    for url, name in fuentes:
-        r = requests.get(url, timeout=60)
-        r.raise_for_status()
-        destino = RAW / f"{name}.csv"
-        destino.write_bytes(r.content)
-        print(f"{destino} — {len(r.content) / 1e6:.1f} MB")
+    actualizados = sum(_descargar(f"{BASE}{name}.csv", name) for name in CSVS)
+    actualizados += _descargar(*ODDS, obligatorio=False)
+    if actualizados < len(CSVS) + 1:
+        print(f"AVISO: {actualizados}/{len(CSVS) + 1} fuentes actualizadas; "
+              "el pipeline continua con las copias locales disponibles.", flush=True)
 
 
 if __name__ == "__main__":
