@@ -5,26 +5,69 @@ peleadores, que el nivel de confianza salga del tramo correcto, y que la app ren
 con y sin cuotas. Requiere `model.pkl` y `data/fighter_state.csv` (los genera train.py).
 """
 
-from ufc.datos import betano, cartelera, oddsapi
+from ufc.datos import betano, cartelera, fetch, oddsapi
 from ufc.modelo import predict
 
 A, B = "Khamzat Chimaev", "Sean Strickland"
 
 # Payload de ESPN recortado: el orden es el real (preliminares primero, main event
 # ultimo), con un TBA para descartar, un acento y un debutante.
-def _pelea(peso, *nombres):
-    return {"type": {"abbreviation": peso},
-            "competitors": [{"athlete": {"displayName": n}} for n in nombres]}
+def _pelea(peso, *nombres, estado=None):
+    c = {"type": {"abbreviation": peso},
+         "competitors": [{"athlete": {"displayName": n}} for n in nombres]}
+    return c | {"status": {"type": {"state": estado}}} if estado else c
 
 
 CARTELERA = {"events": [{
     "name": "UFC 999: Test", "date": "2026-08-15T21:00Z",
     "competitions": [
+        _pelea("Flyweight", A, B, estado="post"),                  # ya se peleo
         _pelea("Middleweight", "TBA", "Opponent TBA"),
         _pelea("Lightweight", "Kauê Fernandes", "Jalin Turner"),   # ESPN pone el acento
         _pelea("Welterweight", "Nadie De La Nada", B),             # debutante
         _pelea("Middleweight", A, B),                              # main event
     ]}]}
+
+
+def check_fetch():
+    """Una caida de GitHub conserva CSVs buenos y solo bloquea si falta uno esencial."""
+    import pathlib
+    import tempfile
+
+    class Respuesta:
+        content = b"columna\nvalor\n"
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    raw, get, sleep = fetch.RAW, fetch.requests.get, fetch.time.sleep
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            fetch.RAW = pathlib.Path(d)
+            fetch.requests.get = lambda *a, **k: Respuesta()
+            fetch.main()
+            archivos = [fetch.RAW / f"{n}.csv" for n in [*fetch.CSVS, fetch.ODDS[1]]]
+            assert all(f.read_bytes() == Respuesta.content for f in archivos), archivos
+
+            def sin_red(*args, **kwargs):
+                raise fetch.requests.ConnectionError("DNS no disponible")
+
+            fetch.requests.get = sin_red
+            fetch.time.sleep = lambda *a: None
+            fetch.main()  # todas las copias locales permiten continuar
+            archivos[-1].unlink()
+            fetch.main()  # odds es opcional incluso sin copia local
+
+            archivos[0].unlink()
+            try:
+                fetch.main()
+            except RuntimeError as exc:
+                assert fetch.CSVS[0] in str(exc) and "copia local" in str(exc), exc
+            else:
+                raise AssertionError("un CSV esencial ausente debe detener el pipeline")
+    finally:
+        fetch.RAW, fetch.requests.get, fetch.time.sleep = raw, get, sleep
 
 
 # `window["initial_state"]` de Betano recortado, con la forma real. Betano escribe el
@@ -370,17 +413,79 @@ def check_predictores():
                                                   peleas[2]["b"]], recargada
             por_evento = predictores.aciertos(por_evento=True)
             assert set(por_evento["evento"]) == {evento}, por_evento
+
+            # El ranking usa el historial revisado, aplica el prior conservador y marca
+            # fuerte solo cuando el apoyo humano tiene confirmacion independiente.
+            rank = predictores.ranking(peleas, guardadas, preds, cuotas)
+            assert rank.iloc[0]["fuerte"], rank
+            pesos = predictores.confiabilidad().set_index("predictor")
+            assert ((pesos["peso"] > 0) & (pesos["peso"] < 1)).all(), pesos
+
+            # Un CSV anterior se conserva pero no cuenta hasta guardarlo desde el editor.
+            pathlib.Path(predictores.PICKS).write_text(
+                ",".join(predictores.COLS_BASE) + "\n" +
+                ",".join(["legacy", evento, fecha, peleas[0]["a"], peleas[0]["b"],
+                          "a", "", "", ""]) + "\n")
+            vieja = predictores.leer()
+            assert vieja.iloc[0]["origen"] == "legacy" and not vieja.iloc[0]["revisado"]
+            assert predictores.aciertos().empty
     finally:
         predictores.PICKS, predictores.RESULTADOS = picks, res
 
 
+def check_apuestas():
+    """Dinero real: simples, combinada, auto-liquidacion y cash-out manual."""
+    import pathlib
+    import tempfile
+
+    from ufc.registro import apuestas, predictores
+
+    ap, det = apuestas.APUESTAS, apuestas.DETALLE
+    resultados = predictores.RESULTADOS
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d)
+            apuestas.APUESTAS, apuestas.DETALLE = base / "apuestas.csv", base / "detalle.csv"
+            predictores.RESULTADOS = base / "resultados.csv"
+            evento, fecha = "UFC Dinero", "2099-08-15"
+            s1 = {"a": "Alpha", "b": "Beta", "pick": "a", "cuota": 2.0}
+            s2 = {"a": "Gamma", "b": "Delta", "pick": "a", "cuota": 1.5}
+            ids1 = apuestas.crear(evento, fecha, [s1, s2], "simple", 1000)
+            ids2 = apuestas.crear(evento, fecha, [s1, s2], "combinada", 2000)
+            pendiente = apuestas.crear(evento, fecha,
+                                       [{"a": "Epsilon", "b": "Zeta", "pick": "a",
+                                         "cuota": 1.8}], "simple", 500)[0]
+            assert len(ids1) == 2 and len(ids2) == 1
+            predictores.guardar_resultados(
+                [[evento, "Alpha", "Beta", "a"], [evento, "Gamma", "Delta", "b"]],
+                evento)
+            df, detalle, resumen = apuestas.evaluar()
+            assert list(df.iloc[:3]["estado"]) == ["ganada", "perdida", "perdida"], df
+            assert df.iloc[0]["cobro_clp"] == 2000 and resumen["pendiente"] == 500
+            assert set(detalle["estado"]) >= {"ganada", "perdida", "pendiente"}
+            apuestas.liquidar(pendiente, "Cash-out", 650, "salida anticipada")
+            df, _, resumen = apuestas.evaluar()
+            cash = df[df["id"] == pendiente].iloc[0]
+            assert cash["estado"] == "cash-out" and cash["beneficio_clp"] == 150, cash
+            assert resumen["pendiente"] == 0
+            apuestas.eliminar(pendiente)
+            assert pendiente not in set(apuestas.leer()["id"])
+            assert pendiente not in set(apuestas.leer_detalle()["apuesta_id"])
+    finally:
+        apuestas.APUESTAS, apuestas.DETALLE = ap, det
+        predictores.RESULTADOS = resultados
+
+
 def check_cartelera():
     """Parseo de la cartelera y prediccion de peleas que pueden no ser predecibles."""
+    import pathlib
+    import tempfile
+
     eventos = cartelera._parsear(CARTELERA)
     assert len(eventos) == 1, eventos
     peleas = eventos[0]["peleas"]
     assert eventos[0]["fecha"] == "2026-08-15"
-    assert len(peleas) == 3, peleas                     # el TBA no cuenta
+    assert len(peleas) == 3, peleas                     # ni el TBA ni la ya peleada
     assert (peleas[0]["a"], peleas[0]["b"]) == (A, B)   # main event primero
     assert peleas[0]["peso"] == "Middleweight"
 
@@ -393,75 +498,169 @@ def check_cartelera():
     assert cartelera.predecir(peleas[1], modelo, estado)["error"]
     assert "p_a" not in cartelera.predecir(peleas[1], modelo, estado)
 
+    eventos_hist, peleas_hist = cartelera.EVENTOS_HIST, cartelera.PELEAS_HIST
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d)
+            cartelera.EVENTOS_HIST = base / "eventos.csv"
+            cartelera.PELEAS_HIST = base / "peleas.csv"
+            cartelera.EVENTOS_HIST.write_text(
+                'EVENT,DATE\nUFC Anterior,"July 25, 2026"\n')
+            cartelera.PELEAS_HIST.write_text(
+                "EVENT,BOUT,OUTCOME,WEIGHTCLASS\n"
+                "UFC Anterior,Alpha vs. Beta,W/L,Lightweight Bout\n"
+                "UFC Anterior,Gamma vs. Delta,L/W,Welterweight Bout\n")
+            anteriores = cartelera.anteriores()
+            assert len(anteriores) == 1 and anteriores[0]["fecha"] == "2026-07-25"
+            assert [p["ganador"] for p in anteriores[0]["peleas"]] == ["a", "b"]
+    finally:
+        cartelera.EVENTOS_HIST, cartelera.PELEAS_HIST = eventos_hist, peleas_hist
+
+
+def _render_page(modulo, args):
+    """Wrapper autosuficiente para AppTest.from_function."""
+    import importlib
+
+    importlib.import_module(modulo).render(*args)
+
 
 def check_app():
-    """La app tiene que renderizar sin excepcion con y sin cuotas."""
+    """El router y cada pagina renderizan sin red ni escrituras en data/."""
+    import copy
     import pathlib
+    import subprocess
     import tempfile
 
     from streamlit.testing.v1 import AppTest
 
-    from ufc.registro import ledger, predictores
+    from ufc.registro import apuestas, ledger, predictores
+    from ufc.ui import tab_cartelera
 
-    cartelera.proximas = lambda *a, **k: cartelera._parsear(CARTELERA)  # sin red
+    cartelera_dos = copy.deepcopy(CARTELERA["events"][0])
+    cartelera_dos["name"] = "UFC Prueba 2"
+    cartelera_dos["date"] = "2026-08-22T00:00Z"
+    carteleras = cartelera._parsear({"events": [CARTELERA["events"][0], cartelera_dos]})
+    cartelera.proximas = lambda *a, **k: carteleras                      # sin red
+    historico = {"evento": "UFC Anterior", "fecha": "2026-07-25", "historico": True,
+                 "peleas": [{"peso": "Lightweight", "a": "Alpha", "b": "Beta",
+                              "ganador": "a"}]}
+    cartelera.anteriores = lambda *a, **k: [historico]
     betano.cuotas = lambda: betano._parsear(BETANO)                     # sin red
     oddsapi.cuotas = lambda: oddsapi._parsear(ODDSAPI)                  # sin red
     tmp = pathlib.Path(tempfile.mkdtemp())
     ledger.LEDGER = tmp / "ledger.csv"                                  # sin ensuciar
+    apuestas.APUESTAS, apuestas.DETALLE = tmp / "a.csv", tmp / "ad.csv"
     predictores.PICKS, predictores.RESULTADOS = tmp / "p.csv", tmp / "r.csv"
     # con picks cargadas se renderiza la comparativa, que arma una columna por predictor
-    evento = cartelera._parsear(CARTELERA)[0]
+    evento = carteleras[0]
     for quien in ("uno", "dos"):
         predictores.guardar([[quien, evento["evento"], evento["fecha"], p["a"], p["b"],
                               "a", "", None, None] for p in evento["peleas"]],
                             evento["evento"], quien)
 
-    for cuotas in ((1.35, 3.20), None):
-        at = AppTest.from_file("app.py", default_timeout=120).run()
-        at.selectbox[0].set_value(A)
-        at.selectbox[1].set_value(B)
-        if cuotas:
-            at.number_input[0].set_value(cuotas[0])
-            at.number_input[1].set_value(cuotas[1])
+    modelo, estado = predict.cargar()
+    nombres = predict.peleadores()
+
+    # El entrypoint abre solo Resumen: las paginas inactivas ya no se computan.
+    at = AppTest.from_file("app.py", default_timeout=120).run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert [h.value for h in at.header] == ["Resumen"], [h.value for h in at.header]
+
+    # El boton muestra avisos sin convertirlos en un fallo y conserva el detalle de un
+    # error real. Se simulan los procesos: la suite nunca ejecuta el pipeline pesado.
+    popen_real = subprocess.Popen
+    llamadas = []
+
+    class Proceso:
+        def __init__(self, cmd, *args, **kwargs):
+            llamadas.append(cmd)
+            self.stdout = ["AVISO: se usa una copia local\n"]
+
+        @staticmethod
+        def wait():
+            return 0
+
+    try:
+        subprocess.Popen = Proceso
         at.button[0].click().run()
         assert not at.exception, [e.value for e in at.exception]
-        # un nivel de confianza por pelea con cuota: la del matchup si se cargo, mas la
-        # unica de la cartelera que Betano cotiza y el modelo puede predecir.
-        # (contar solo los de confianza: el box de candidata a valor va aparte y no
-        # siempre aparece, depende de la cuota)
-        cajas = [c.value for c in (*at.success, *at.warning, *at.error)]
-        avisos = sum("Confianza" in c for c in cajas)
-        assert avisos == (1 if cuotas else 0) + 1, (cuotas, avisos, cajas)
-        # ninguna candidata puede convivir con confianza que no sea alta
-        assert not [c for c in cajas if "Candidata" in c and "Confianza alta" not in
-                    " ".join(cajas)], cajas
-        # las cuotas de la cartelera ya no se tipean: quedan solo las dos del matchup
-        assert len(at.number_input) == 2, len(at.number_input)
-        assert len(at.info) == 1, len(at.info)
-        # un debutante no tiene prediccion, pero su cuota se muestra igual: es lo unico
-        # que hay para esa pelea, y esconderla fue un bug
-        precios = [c.value for c in at.caption if c.value.startswith("Betano —")]
-        assert any("Nadie De La Nada 3.10" in c for c in precios), precios
-        assert len(precios) == 2, precios       # el debutante y la pelea predecible
-        # la pelea con cuota de la cartelera quedo congelada en el ledger
-        assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
-        # el consenso multi-casa se muestra para la pelea que The Odds API cotiza
-        consensos = [c.value for c in at.caption if c.value.startswith("Consenso")]
-        assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
-        # la comparativa arma una columna por predictor: es lo unico dinamico de la tabla
-        columnas = [set(d.value.columns) for d in at.dataframe]
-        assert any({"uno", "dos", "senal"} <= c for c in columnas), columnas
-        # el metodo por division aparece en cada pelea de la cartelera, debut incluido
-        if "metodo" in predict.cargar()[0]:
-            metodos = [c.value for c in at.caption
-                       if c.value.startswith("Cómo suele terminar")]
-            assert len(metodos) == 3, metodos
+        assert len(llamadas) == 5 and llamadas[0][-1] == "ufc.datos.fetch", llamadas
+
+        class ProcesoFallido(Proceso):
+            def __init__(self, cmd, *args, **kwargs):
+                super().__init__(cmd, *args, **kwargs)
+                self.stdout = ["causa concreta de prueba\n"]
+
+            @staticmethod
+            def wait():
+                return 1
+
+        subprocess.Popen = ProcesoFallido
+        fallida = AppTest.from_file("app.py", default_timeout=120).run()
+        fallida.button[0].click().run()
+        assert any("causa concreta de prueba" in e.value for e in fallida.error), \
+            [e.value for e in fallida.error]
+    finally:
+        subprocess.Popen = popen_real
+
+    paginas = [
+        ("ufc.ui.tab_resumen", (modelo, estado), "Resumen"),
+        ("ufc.ui.tab_cartelera", (modelo, estado), "Cartelera"),
+        ("ufc.ui.tab_predictores", (modelo, estado), "Predictores"),
+        ("ufc.ui.tab_apuestas", (modelo, estado), "Apuestas"),
+        ("ufc.ui.tab_matchup", (modelo, estado, nombres), "Matchup"),
+        ("ufc.ui.tab_historial", (), "Seguimiento del modelo"),
+    ]
+    for modulo, args, titulo in paginas:
+        pagina = AppTest.from_function(_render_page, args=(modulo, args),
+                                       default_timeout=120).run()
+        assert not pagina.exception, (titulo, [e.value for e in pagina.exception])
+        assert titulo in [h.value for h in pagina.header], (titulo, [h.value for h in pagina.header])
+
+    # Abrir la carga historica renderiza un selector de dos lados por pelea y sus
+    # detalles opcionales; esto cubre APIs que la comparativa vacia no ejecuta.
+    pred = AppTest.from_function(_render_page,
+                                 args=("ufc.ui.tab_predictores", (modelo, estado)),
+                                 default_timeout=120).run()
+    pred.segmented_control[0].set_value("Picks").run()
+    pred.selectbox[1].set_value("uno").run()
+    assert not pred.exception, [e.value for e in pred.exception]
+    assert len(pred.segmented_control) == len(evento["peleas"]) + 1
+
+    # Cartelera mantiene cuota de debutantes, consenso multi-casa y registro automatico.
+    cart = AppTest.from_function(_render_page,
+                                 args=("ufc.ui.tab_cartelera", (modelo, estado)),
+                                 default_timeout=120).run()
+    assert not cart.selectbox, "la agenda reemplaza el selector desplegable"
+    assert [b.label for b in cart.button] == ["Seleccionado", "Ver cartelera",
+                                               "Ver carteleras anteriores"], \
+        [b.label for b in cart.button]
+    cart.button[1].click().run()
+    assert cart.button[1].label == "Seleccionado" and cart.button[1].disabled, \
+        [(b.label, b.disabled, b.value) for b in cart.button]
+    assert "UFC Prueba 2" in [h.value for h in cart.subheader], \
+        [h.value for h in cart.subheader]
+    cart.session_state["cartelera_evento_activo"] = "evento que ya no existe"
+    cart.run()
+    assert cart.button[0].label == "Seleccionado" and cart.button[0].disabled, \
+        [(b.label, b.disabled) for b in cart.button]
+    cart.button[2].click().run()
+    assert "UFC Anterior" in [m.value.strip("*") for m in cart.markdown], \
+        [m.value for m in cart.markdown]
+    assert [b.label for b in cart.button] == ["Volver a próximos eventos"]
+    cart.button[0].click().run()
+    precios = [c.value for c in cart.caption if c.value.startswith("Betano —")]
+    assert any("Nadie De La Nada 3.10" in c for c in precios), precios
+    assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
+    consensos = [c.value for c in cart.caption if c.value.startswith("Consenso")]
+    assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
 
 
 if __name__ == "__main__":
-    for check in (check_betano, check_simetria, check_circunstancia, check_confianza,
-                  check_apuesta,
+    for check in (check_fetch, check_betano, check_simetria, check_circunstancia,
+                  check_confianza, check_apuesta,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
-                  check_ledger, check_predictores, check_cartelera, check_app):
+                  check_ledger, check_predictores, check_apuestas, check_cartelera,
+                  check_app):
         check()
         print(f"ok  {check.__name__}")

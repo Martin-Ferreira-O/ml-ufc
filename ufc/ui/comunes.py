@@ -33,15 +33,15 @@ ETIQUETAS = {
 ESTILO = {"alta": st.success, "media": st.warning, "baja": st.error}
 # Emoji y no un badge de markdown porque en la celda de un dataframe el markdown sale
 # crudo: solo se renderiza en el overlay que aparece al clickearla.
-BADGE = {"alta": "🟢 alta", "media": "🟡 media", "baja": "🔴 baja"}
+BADGE = {"alta": "Alta", "media": "Media", "baja": "Baja"}
 # Las columnas del ledger son internas ("p_a", "gano" = "a"/"b"): sin esto la tabla
 # hay que decodificarla mirando otras dos columnas.
 COLUMNAS = {
     "fecha": st.column_config.DateColumn("Fecha", format="DD MMM YYYY"),
     "pelea": st.column_config.TextColumn("Pelea", pinned=True),
     "seguido": st.column_config.TextColumn(
-        "Lado seguido", help="La candidata a valor si la hubo; si no, el lado de mayor "
-                             "EV — hipotético, para poder medirlo igual."),
+        "Lado seguido", help="La candidata si la hubo; si no, el lado con mayor ventaja "
+                             "estimada. Es seguimiento hipotético, no una apuesta real."),
     "p_modelo": st.column_config.ProgressColumn(
         "Modelo", format="percent", min_value=0, max_value=1,
         help="Probabilidad que le da el modelo a ese lado, sin mirar la cuota."),
@@ -58,8 +58,8 @@ COLUMNAS = {
     "ganador": st.column_config.TextColumn("Ganador"),
     "acerto": st.column_config.CheckboxColumn("Acertó", disabled=True),
     "clv": st.column_config.NumberColumn(
-        "CLV", format="percent",
-        help="Cuota congelada vs cuota de cierre. Positivo = le ganaste al cierre."),
+        "Mejora vs cierre", format="percent",
+        help="Cuota registrada frente a la cuota final. Positivo = conseguiste mejor precio."),
     "retorno": st.column_config.NumberColumn(
         "Retorno", format="%+.2f u", help="Flat-bet de 1 unidad en ese lado."),
 }
@@ -78,8 +78,8 @@ COLUMNAS_COMP = {
     "cuota": st.column_config.NumberColumn(
         "Cuota", format="%.2f", help="La cuota de Betano del lado del consenso."),
     "ev": st.column_config.NumberColumn(
-        "EV modelo", format="percent",
-        help="EV que le da el modelo al lado del consenso (probabilidad × cuota − 1)."),
+        "Ventaja estimada", format="percent",
+        help="Probabilidad del modelo por cuota, menos uno. No garantiza rentabilidad."),
     "senal": st.column_config.TextColumn("Señal"),
 }
 
@@ -120,7 +120,7 @@ def resultado(a, b, r, cuotas):
         if cuotas:
             st.metric(f"Mercado — {a}", f"{r['p_a_mercado']:.1%}",
                       help="Probabilidad implícita sin el margen de la casa.")
-            st.metric(f"Modelo con cuota — {a}", f"{r['p_a_con_odds']:.1%}",
+            st.metric(f"Pronóstico ajustado al mercado — {a}", f"{r['p_a_con_odds']:.1%}",
                       delta=f"{r['p_a_con_odds'] - r['p_a_mercado']:+.1%} vs mercado",
                       help="Medido: no le gana al mercado solo. Está para ver "
                            "cuánto lo mueve el historial, no para apostarlo.")
@@ -131,18 +131,19 @@ def resultado(a, b, r, cuotas):
                "comparar contra cualquier casa, no solo Betano.")
     if cuotas:
         ESTILO[r["confianza"]](f"**Confianza {r['confianza']}.** {r['motivo']}")
-        st.caption(f"EV del modelo — {a} {r['ev_a']:+.0%} · {b} {r['ev_b']:+.0%} "
+        st.caption(f"Ventaja estimada — {a} {r['ev_a']:+.0%} · {b} {r['ev_b']:+.0%} "
                    "(probabilidad × cuota − 1, con el margen de la casa adentro).")
         if r["apuesta"]:
             quien, ev = ((a, r["ev_a"]) if r["apuesta"] == "a" else (b, r["ev_b"]))
             st.success(
-                f"**Candidata a valor: {quien} ({ev:+.0%} de EV).** Único tramo que no "
+                f"**Candidata según el modelo: {quien} ({ev:+.0%} de ventaja estimada).** "
+                "Único tramo que no "
                 f"pierde medido: ROI {predict.ROI_APOSTABLE}. El IC95% cruza el cero, "
                 "así que es break-even con esperanza, no una ventaja probada — "
                 "stake chico y plano.")
         elif max(r["ev_a"], r["ev_b"]) > 0:
-            st.caption("Hay EV positivo en el papel, pero en este tramo de discrepancia "
-                       "el flat-bet rindió −7% medido: el EV sale de que el modelo se "
+            st.caption("Hay ventaja estimada en el papel, pero en este tramo de diferencia "
+                       "apostar un importe fijo rindió −7%: la señal aparece porque el modelo se "
                        "aparta del mercado, y ahí el que se equivoca es el modelo.")
 
 
@@ -170,4 +171,3 @@ def leer_imagen(datos, mime, pares):
     """La imagen del tipster -> sus picks. Cacheada porque si no, cada tecla que tocás
     en la tabla de abajo es un rerun, y cada rerun sería otro llamado a la API."""
     return predictores.extraer(datos, mime, [{"a": a, "b": b} for a, b in pares])
-

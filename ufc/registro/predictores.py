@@ -24,8 +24,9 @@ from ufc import rutas
 
 PICKS = rutas.DATOS / "picks.csv"
 RESULTADOS = rutas.DATOS / "resultados.csv"
-COLS = ["predictor", "evento", "fecha_evento", "a", "b", "pick", "metodo", "round",
-        "confianza"]
+COLS_BASE = ["predictor", "evento", "fecha_evento", "a", "b", "pick", "metodo",
+             "round", "confianza"]
+COLS = [*COLS_BASE, "origen", "revisado"]
 COLS_RES = ["evento", "a", "b", "ganador"]
 
 # ponytail: el modelo barato alcanza para leer una infografia. Si llega a confundir de
@@ -33,10 +34,10 @@ COLS_RES = ["evento", "a", "b", "ganador"]
 MODELO = "gemini-3.5-flash"
 METODOS = ["ko", "sub", "dec"]
 
-LOCK = "✅ consenso + modelo"
-CONTRA = "⚠️ modelo en contra"
-SPLIT = "🔀 split"
-SIN_MODELO = "✅ consenso (sin modelo)"
+LOCK = "Consenso + modelo"
+CONTRA = "Modelo en contra"
+SPLIT = "Opiniones divididas"
+SIN_MODELO = "Consenso sin modelo"
 
 ESQUEMA = {
     "type": "OBJECT",
@@ -122,6 +123,21 @@ def _leer(archivo, cols, evento=None):
     if not archivo.exists():
         return pd.DataFrame(columns=cols)
     df = pd.read_csv(archivo)
+    if cols == COLS:
+        # Los CSV anteriores no declaraban de donde salia la pick ni si una persona la
+        # habia confirmado. Se conservan, pero no deben influir en el ranking hasta que
+        # se abran y guarden desde el editor historico.
+        if "origen" not in df:
+            df["origen"] = "legacy"
+        if "revisado" not in df:
+            df["revisado"] = False
+        df["origen"] = df["origen"].fillna("legacy")
+        df["revisado"] = df["revisado"].fillna(False).map(
+            lambda v: v if isinstance(v, bool) else str(v).lower() == "true")
+    for c in cols:
+        if c not in df:
+            df[c] = None
+    df = df[cols]
     return df[df["evento"] == evento].copy() if evento is not None else df
 
 
@@ -138,16 +154,29 @@ def _reemplazar(archivo, cols, filas, clave):
             m &= viejo[c] == v
         viejo = viejo[~m]
     archivo.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat([viejo, pd.DataFrame(filas, columns=cols)])[cols].to_csv(archivo,
-                                                                      index=False)
+    nuevo = pd.DataFrame(filas, columns=cols) if filas else pd.DataFrame(columns=cols)
+    pd.concat([viejo, nuevo], ignore_index=True)[cols].to_csv(archivo, index=False)
 
 
 def leer(evento=None):
     return _leer(PICKS, COLS, evento)
 
 
-def guardar(filas, evento, predictor):
-    _reemplazar(PICKS, COLS, filas, {"evento": evento, "predictor": predictor})
+def guardar(filas, evento, predictor, origen="manual", revisado=True):
+    """Guarda todas las picks de una persona para un evento.
+
+    Acepta las filas historicas de nueve columnas para mantener compatible la API. La
+    UI nueva explicita el origen, y cualquier guardado humano confirma la revision.
+    """
+    completas = []
+    for fila in filas:
+        valores = list(fila)
+        if len(valores) == len(COLS_BASE):
+            valores += [origen, revisado]
+        elif len(valores) != len(COLS):
+            raise ValueError(f"Pick con {len(valores)} campos; se esperaban 9 u 11")
+        completas.append(valores)
+    _reemplazar(PICKS, COLS, completas, {"evento": evento, "predictor": predictor})
 
 
 def leer_resultados(evento=None):
@@ -156,6 +185,26 @@ def leer_resultados(evento=None):
 
 def guardar_resultados(filas, evento):
     _reemplazar(RESULTADOS, COLS_RES, filas, {"evento": evento})
+
+
+def eventos_guardados():
+    """Carteleras reconstruidas desde picks/resultados para poder corregir el pasado."""
+    picks, resultados = leer(), leer_resultados()
+    nombres_evento = list(dict.fromkeys([
+        *picks.get("evento", pd.Series(dtype=str)).dropna().tolist(),
+        *resultados.get("evento", pd.Series(dtype=str)).dropna().tolist(),
+    ]))
+    eventos = []
+    for evento in nombres_evento:
+        p = picks[picks["evento"] == evento]
+        r = resultados[resultados["evento"] == evento]
+        pares = pd.concat([p[["a", "b"]], r[["a", "b"]]], ignore_index=True) \
+            .drop_duplicates()
+        fecha = p["fecha_evento"].dropna().iloc[0] if len(p) and p["fecha_evento"].notna().any() else ""
+        eventos.append({"evento": evento, "fecha": str(fecha),
+                        "peleas": [{"a": x.a, "b": x.b, "peso": ""}
+                                    for x in pares.itertuples()], "historico": True})
+    return eventos
 
 
 def _nada_si_falta(v):
@@ -276,10 +325,12 @@ def parlay(df):
     return list(lock["consenso"]), float(lock["cuota"].prod())
 
 
-def aciertos(por_evento=False):
+def aciertos(por_evento=False, solo_revisadas=True):
     """-> DataFrame con aciertos/total/% por predictor sobre las peleas ya cargadas."""
     claves = ["predictor", "evento"] if por_evento else ["predictor"]
     picks, res = leer(), leer_resultados()
+    if solo_revisadas and len(picks):
+        picks = picks[picks["revisado"]]
     if not len(picks) or not len(res):
         return pd.DataFrame(columns=[*claves, "aciertos", "total", "acierto"])
     df = picks.merge(res, on=["evento", "a", "b"])
@@ -289,3 +340,76 @@ def aciertos(por_evento=False):
     g = df.groupby(claves)["ok"].agg(aciertos="sum", total="count").reset_index()
     g["acierto"] = g["aciertos"] / g["total"]
     return g.sort_values("acierto", ascending=False)
+
+
+def confiabilidad():
+    """Precision observada y peso conservador para cada predictor revisado.
+
+    El prior Beta(5, 5) evita que una racha corta de 14-0 se trate como 100% real.
+    """
+    g = aciertos()
+    if not len(g):
+        return pd.DataFrame(columns=["predictor", "aciertos", "total", "acierto", "peso"])
+    g["peso"] = (g["aciertos"] + 5) / (g["total"] + 10)
+    return g
+
+
+def ranking(peleas, picks, preds, cuotas_de):
+    """Ordena las peleas por apoyo humano y confirmaciones independientes.
+
+    Solo usa picks revisadas. El modelo y el favorito de mercado no cambian el voto
+    humano: confirman la direccion y resuelven el orden entre apoyos parecidos.
+    """
+    picks = picks[picks["revisado"]].copy() if len(picks) else picks
+    pesos_df = confiabilidad()
+    pesos = dict(zip(pesos_df["predictor"], pesos_df["peso"]))
+    filas = []
+    for orden, (pelea, r, cuotas) in enumerate(zip(peleas, preds, cuotas_de)):
+        pp = picks[(picks["a"] == pelea["a"]) & (picks["b"] == pelea["b"])] \
+            if len(picks) else picks
+        votos = {"a": 0.0, "b": 0.0}
+        conteo = {"a": 0, "b": 0}
+        for pick in pp.itertuples():
+            peso = pesos.get(pick.predictor, 0.5)
+            if pick.pick in votos:
+                votos[pick.pick] += peso
+                conteo[pick.pick] += 1
+        total_peso = sum(votos.values())
+        if not total_peso or votos["a"] == votos["b"]:
+            lado, apoyo = None, (0.5 if total_peso else np.nan)
+        else:
+            lado = "a" if votos["a"] > votos["b"] else "b"
+            apoyo = votos[lado] / total_peso
+
+        lado_modelo = ("a" if r["p_a"] >= 0.5 else "b") if "p_a" in r else None
+        lado_mercado = None if not cuotas else ("a" if cuotas[0] <= cuotas[1] else "b")
+        conf_modelo = bool(lado and lado == lado_modelo)
+        conf_mercado = bool(lado and lado == lado_mercado)
+        confirmaciones = int(conf_modelo) + int(conf_mercado)
+        fuerte = bool(lado and len(pp) >= 2 and apoyo >= 2 / 3 and confirmaciones)
+        if fuerte:
+            senal = "Señal fuerte"
+        elif lado and conteo[lado] == len(pp) and len(pp):
+            senal = "Consenso humano"
+        elif lado:
+            senal = "Mayoría humana"
+        elif len(pp):
+            senal = "Opiniones divididas"
+        else:
+            senal = "Sin picks revisadas"
+        filas.append({
+            "orden": orden,
+            "pelea": f"{pelea['a']} vs {pelea['b']}",
+            "a": pelea["a"], "b": pelea["b"], "lado": lado,
+            "seleccion": _quien(pelea, lado), "apoyo": apoyo,
+            "votos": conteo.get(lado, 0) if lado else 0,
+            "predictores": len(pp), "modelo_confirma": conf_modelo,
+            "mercado_confirma": conf_mercado, "confirmaciones": confirmaciones,
+            "senal": senal, "fuerte": fuerte,
+            "cuota": (cuotas[0] if lado == "a" else cuotas[1]) if cuotas and lado else np.nan,
+        })
+    df = pd.DataFrame(filas)
+    if not len(df):
+        return df
+    return df.sort_values(["fuerte", "confirmaciones", "apoyo", "predictores", "orden"],
+                          ascending=[False, False, False, False, True]).reset_index(drop=True)

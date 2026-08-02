@@ -8,6 +8,7 @@ from ufc.ui import comunes
 
 
 def render(modelo, estado, nombres):
+    st.header("Matchup")
     with st.form("matchup", border=False):
         with st.container(horizontal=True):
             a = st.selectbox("Peleador A", nombres, index=None,
@@ -48,9 +49,9 @@ def render(modelo, estado, nombres):
                 comunes.resultado(a, b, r, cuotas)
 
             st.subheader("Qué mueve la predicción del modelo")
-            st.caption(f"Aporte de cada feature al logit de {a}. Positivo lo favorece a "
-                       "él, negativo a su rival.")
+            st.caption(f"Impacto de cada variable para {a}. Positivo lo favorece; "
+                       "negativo favorece a su rival.")
             factores = pd.DataFrame(r["factores"], columns=["factor", "aporte"])
             factores["factor"] = factores["factor"].map(lambda k: comunes.ETIQUETAS.get(k, k))
             st.bar_chart(factores, x="factor", y="aporte", horizontal=True,
-                         x_label="aporte al logit", y_label="")
+                         x_label="impacto", y_label="")

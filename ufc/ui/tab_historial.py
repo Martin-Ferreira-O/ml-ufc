@@ -1,4 +1,4 @@
-"""Pestania Historial: el forward test — cada prediccion congelada y su CLV."""
+"""Seguimiento hipotetico de cada prediccion congelada."""
 
 import pandas as pd
 import streamlit as st
@@ -8,11 +8,11 @@ from ufc.ui import comunes
 
 
 def render():
+    st.header("Seguimiento del modelo")
     st.caption("Cada pelea que apareció con cuota queda congelada acá con la predicción "
                "y la cuota de ese momento. Cuando la pelea ocurre se cruza con el "
-               "resultado y con el último tick de Betano (el cierre): el CLV positivo "
-               "sostenido es el único predictor confiable de rentabilidad, y converge "
-               "en decenas de apuestas, no en miles.")
+               "resultado y con la cuota final. Conseguir mejores precios de forma sostenida "
+               "es una señal útil, pero esta sección no representa apuestas reales.")
     df_ledger, resumen = ledger.evaluar()
     if df_ledger.empty:
         st.info("Todavía no hay predicciones registradas. Se van guardando solas al "
@@ -30,19 +30,19 @@ def render():
                                "del modelo terminó ganando.")
             st.metric("Candidatas", resumen["candidatas"], border=True,
                       help="Peleas donde el modelo coincide con la casa y aun así "
-                           "encuentra EV. Es el único tramo que no perdió medido.")
+                           "encuentra ventaja estimada. Es el único tramo que no perdió medido.")
             if pd.notna(resumen["roi_candidatas"]):
                 st.metric("ROI candidatas", f"{resumen['roi_candidatas']:+.1%}",
-                          border=True, help="Flat-bet 1u en cada candidata ya resuelta.")
+                          border=True, help="Importe fijo de 1 unidad en cada candidata resuelta.")
             if pd.notna(resumen["clv_medio"]):
-                st.metric("CLV medio", f"{resumen['clv_medio']:+.1%}", border=True,
-                          help="Cuota congelada vs cuota de cierre del lado apostado. "
+                st.metric("Mejora frente al cierre", f"{resumen['clv_medio']:+.1%}", border=True,
+                          help="Cuota registrada vs cuota de cierre del lado seguido. "
                                "Positivo = le ganaste al cierre.")
 
         tabla = comunes.historial(df_ledger)
         hechas = df_ledger["gano"].notna().to_numpy()
         st.caption("Cada fila muestra **un solo lado** de la pelea: la candidata a valor "
-                   "si la hubo, si no el lado de mayor EV. Las cuotas y el retorno son "
+                   "si la hubo, si no el lado con mayor ventaja estimada. Las cuotas y el retorno son "
                    "siempre de ese lado.")
         if not hechas.all():
             proximas = tabla[~hechas].sort_values("fecha")

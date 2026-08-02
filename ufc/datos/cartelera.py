@@ -23,6 +23,8 @@ from ufc.modelo import features, predict
 API = "https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard"
 SIN_RIVAL = {"tba", "opponent tba"}
 HIST = rutas.DATOS / "cartelera_hist.csv"
+EVENTOS_HIST = rutas.RAW / "ufc_event_details.csv"
+PELEAS_HIST = rutas.RAW / "ufc_fight_results.csv"
 
 
 def _parsear(payload):
@@ -31,6 +33,11 @@ def _parsear(payload):
     for e in payload.get("events", []):
         peleas = []
         for c in e.get("competitions", []):
+            # ESPN sigue devolviendo el evento el dia entero despues de que termino, y una
+            # pelea peleada no se puede apostar. "pre" por defecto: si ESPN no manda
+            # status la damos por pendiente antes que hacerla desaparecer.
+            if c.get("status", {}).get("type", {}).get("state", "pre") != "pre":
+                continue
             nombres = [x["athlete"]["displayName"] for x in c.get("competitors", [])]
             if len(nombres) != 2 or any(n.lower() in SIN_RIVAL for n in nombres):
                 continue
@@ -74,6 +81,49 @@ def proximas(dias=90):
     eventos = _parsear(r.json())
     _archivar(eventos)
     return eventos
+
+
+def anteriores(limite=20):
+    """Carteleras disputadas, reconstruidas desde los CSV locales de UFCStats.
+
+    A diferencia de ``HIST``, estas son las peleas que efectivamente ocurrieron: el
+    primer avistaje ESPN tambien conserva combates cancelados y rivales reemplazados.
+    """
+    if not (EVENTOS_HIST.exists() and PELEAS_HIST.exists()):
+        return []
+    fechas = {}
+    with EVENTOS_HIST.open() as f:
+        for fila in csv.DictReader(f):
+            evento = fila.get("EVENT", "").strip()
+            if not evento:
+                continue
+            try:
+                fecha = datetime.datetime.strptime(
+                    fila.get("DATE", "").strip(), "%B %d, %Y").date().isoformat()
+            except ValueError:
+                fecha = fila.get("DATE", "").strip()
+            fechas[evento] = fecha
+
+    peleas = {}
+    with PELEAS_HIST.open() as f:
+        for fila in csv.DictReader(f):
+            evento = fila.get("EVENT", "").strip()
+            nombres = fila.get("BOUT", "").split(" vs. ", 1)
+            if evento not in fechas or len(nombres) != 2:
+                continue
+            peso = fila.get("WEIGHTCLASS", "").strip().removesuffix(" Bout")
+            pelea = {"peso": peso, "a": nombres[0].strip(), "b": nombres[1].strip()}
+            resultado = fila.get("OUTCOME", "").strip()
+            if resultado in {"W/L", "L/W"}:
+                pelea["ganador"] = "a" if resultado == "W/L" else "b"
+            if pelea not in peleas.setdefault(evento, []):
+                peleas[evento].append(pelea)
+
+    eventos = [{"evento": evento, "fecha": fechas[evento], "peleas": cartelera,
+                "historico": True}
+               for evento, cartelera in peleas.items() if cartelera]
+    eventos.sort(key=lambda e: e["fecha"], reverse=True)
+    return eventos[:limite]
 
 
 def contexto(peso, es_main):

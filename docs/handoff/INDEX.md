@@ -10,3 +10,4 @@ that must be `done` first (or `—`). Retire finished slugs with `/archive <slug
 | slug | status | depends-on | updated | note |
 |------|--------|------------|---------|------|
 | ufc-fight-predictor | done | — | 2026-07-28 | T1-T5 implementados y verificados; pipeline completo corre end-to-end |
+| predictor-ux-dashboard | done | ufc-fight-predictor | 2026-08-01 | T1-T7 completos; historial conectado al peso de predictores |
