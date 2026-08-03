@@ -148,13 +148,13 @@ def render(modelo, estado, pagina_predictores=None):
         tabla = comunes.cuotas_betano()
         consenso = comunes.consenso()
         if not tabla:
-            st.warning("Betano no respondió: la cartelera va sin cuotas ni confianza.")
+            st.warning("Betano no respondió: la cartelera va sin cuotas ni coincidencia.")
         cuotas_de = [betano.buscar(tabla, p["a"], p["b"]) for p in evento["peleas"]]
         # Si no hay ninguna, el motivo es el evento entero, no cada pelea: decirlo una
         # vez evita que parezca que el matcheo falló pelea por pelea.
         if tabla and not any(cuotas_de):
             st.info("Betano todavía no abrió mercado para este evento — lo hace unos días "
-                    "antes. Va sin cuotas ni nivel de confianza.")
+                    "antes. Va sin cuotas ni nivel de coincidencia.")
         for i, (pelea, cuotas) in enumerate(zip(evento["peleas"], cuotas_de)):
             with st.container(border=True):
                 st.subheader(f"{pelea['a']} vs {pelea['b']}", divider="gray")
@@ -187,7 +187,7 @@ def render(modelo, estado, pagina_predictores=None):
                     st.caption(f"Cómo suele terminar: KO/TKO {m['ko']:.0%} · sumisión "
                                f"{m['sub']:.0%} · decisión {m['dec']:.0%} — está medido "
                                "que depende de la división, no del historial del par.")
-                r = cartelera.predecir(pelea, modelo, estado, cuotas)
+                r = cartelera.predecir(pelea, modelo, estado, cuotas, evento["fecha"])
                 if "error" in r:
                     st.info(f"{r['error']} — el modelo no puede predecir un debut.")
                     continue

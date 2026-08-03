@@ -22,8 +22,15 @@ El model.pkl final se re-entrena con todo el historial; las metricas reportadas
 vienen del modelo de split.
 """
 
+import datetime
+import hashlib
+import importlib.metadata
+import os
+import pathlib
 import pickle
+import subprocess
 import sys
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -35,7 +42,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ufc import rutas
-from ufc.modelo import features
+from ufc.modelo import features, settlement
 
 FEATS = rutas.DATOS / "features.csv"
 MODEL = rutas.MODELO
@@ -51,6 +58,103 @@ PARAMS = dict(max_iter=100, learning_rate=0.05, max_leaf_nodes=15,
               l2_regularization=1.0, random_state=0, early_stopping=False)
 C_LINEAL = 0.01  # la curva de C es plana entre 0.003 y 1.0; cualquiera sirve
 MODELOS = ("hgb", "lineal", "blend")
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with pathlib.Path(path).open("rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _commit():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=rutas.RAIZ, text=True,
+            stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _dirty():
+    try:
+        return bool(subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=rutas.RAIZ, text=True,
+            stderr=subprocess.DEVNULL).strip())
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _archivo(path):
+    path = pathlib.Path(path)
+    return {"path": str(path.relative_to(rutas.RAIZ)), "sha256": _sha256(path),
+            "bytes": path.stat().st_size}
+
+
+def _manifest(df, partes, predicciones, calidad=None):
+    """Metadatos suficientes para saber con que datos/codigo se produjo el bundle."""
+    y = objetivo(partes["test"])
+    p = predicciones["test"]["blend"]
+    fuentes = [FEATS, STATE, *(rutas.RAW / n for n in (
+        "ufc_fight_results.csv", "ufc_event_details.csv", "ufc_fight_stats.csv",
+        "ufc_fighter_tott.csv"))]
+    fuentes = [_archivo(path) for path in fuentes if path.exists()]
+    deps = {name: importlib.metadata.version(name)
+            for name in ("numpy", "pandas", "scikit-learn")}
+    odds = rutas.RAW / "ufc_odds.csv"
+    latest_odds = None
+    if odds.exists():
+        odds_dates = pd.to_datetime(pd.read_csv(odds, usecols=["date"])["date"],
+                                    errors="coerce")
+        latest_odds = odds_dates.max().date().isoformat() if odds_dates.notna().any() else None
+    return {
+        "schema_version": 1,
+        "trained_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "code_commit": _commit(),
+        "code_dirty": _dirty(),
+        "code_files": [_archivo(path) for path in (
+            pathlib.Path(features.__file__), pathlib.Path(__file__),
+            pathlib.Path(settlement.__file__), rutas.RAIZ / "ufc/modelo/predict.py")],
+        "settlement_rules": settlement.RULES_VERSION,
+        "data": {"rows": len(df), "fights": len(df) // 2,
+                 "min_date": df["date"].min().date().isoformat(),
+                 "max_date": df["date"].max().date().isoformat(),
+                 "files": fuentes, "odds_latest_date": latest_odds},
+        "dependencies": deps,
+        "model": {"features": list(features.FEATURES), "hgb_params": PARAMS,
+                  "linear_c": C_LINEAL, "random_seed": 0},
+        "metrics": {"split": "rolling development window; not an untouched holdout",
+                    "test_fights": len(y), "test_log_loss": float(log_loss(y, p)),
+                    "test_brier": float(brier_score_loss(y, p)),
+                    "test_accuracy": float(accuracy_score(y, p > 0.5)),
+                    "coincidence_buckets": calidad or []},
+        "validation_domain": {
+            "historical_odds": "late/closing line without verified timestamp",
+            "live_odds": "not economically validated",
+            "automatic_betting": False,
+            "forward_cohort_starts_after": df["date"].max().date().isoformat(),
+        },
+    }
+
+
+def _atomic_bytes(path, payload):
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as tmp:
+        temporal = pathlib.Path(tmp.name)
+        tmp.write(payload)
+    os.replace(temporal, path)
+
+
+def _atomic_csv(path, df):
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", dir=path.parent,
+                                     delete=False) as tmp:
+        temporal = pathlib.Path(tmp.name)
+        df.to_csv(tmp, index=False)
+    os.replace(temporal, path)
 
 
 def _lineal():
@@ -88,6 +192,7 @@ def entrenar_metodo(d, cols=None):
     dos bundles y `predict.py` elige — el mismo patron que el modelo de ganador.
     """
     cols = features.CONTEXTO if cols is None else cols
+    d = d[d["metodo"].isin(["ko", "sub", "dec"])]
     return HistGradientBoostingClassifier(**PARAMS).fit(d[cols], d["metodo"])
 
 
@@ -99,8 +204,12 @@ def probar_metodo(df, corte):
     """
     clases = ["dec", "ko", "sub"]  # orden alfabetico, el que usa HistGB en classes_
     acum = {k: [] for k in ("contexto", "props como feature", "mercado solo", "blend")}
-    ys = []
+    ys, eventos = [], []
     for tr, te in rolling_origin(df, corte):
+        tr = tr[tr["metodo"].notna()]
+        te = te[te["metodo"].notna()]
+        if not len(tr) or not len(te):
+            continue
         u = te.iloc[0::2]
         hay = u[features.PROPS].notna().all(axis=1).to_numpy()
         if not hay.any() or not tr[features.PROPS].notna().all(axis=1).any():
@@ -116,8 +225,9 @@ def probar_metodo(df, corte):
         acum["mercado solo"].append(mk)
         acum["blend"].append((acum["contexto"][-1] + mk) / 2)
         ys.append(u["metodo"].to_numpy()[hay])
+        eventos.append(u["event"].to_numpy()[hay])
 
-    y = np.concatenate(ys)
+    y, clusters = np.concatenate(ys), np.concatenate(eventos)
     acum = {k: np.concatenate(v) for k, v in acum.items()}
     idx = (np.arange(len(y)), [clases.index(v) for v in y])
     perdida = lambda p: -np.log(np.clip(p[idx], 1e-15, None))  # noqa: E731
@@ -130,7 +240,8 @@ def probar_metodo(df, corte):
         print(f"  {k:20s} log loss {log_loss(y, p, labels=clases):.4f}")
     for k in ("props como feature", "mercado solo", "blend"):
         print(f"  {k:20s} vs contexto: "
-              f"{veredicto(*bootstrap(perdida(acum[k]) - perdida(acum['contexto'])))}")
+              f"{veredicto(*bootstrap(perdida(acum[k]) - perdida(acum['contexto']),
+                                      clusters=clusters))}")
 
 
 def probas(modelos, d, cols):
@@ -167,21 +278,31 @@ def _perdida(y, p):
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
-def bootstrap(d, n_boot=2000, seed=0):
-    """-> (media, lo, hi) de un vector de deltas pareados, por bootstrap."""
+def bootstrap(d, n_boot=2000, seed=0, clusters=None):
+    """IC de un delta pareado; por defecto remuestrea observaciones o clusters enteros."""
+    d = np.asarray(d, float)
     rng = np.random.default_rng(seed)
-    bs = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
+    if clusters is None:
+        bs = d[rng.integers(0, len(d), (n_boot, len(d)))].mean(axis=1)
+    else:
+        clusters = np.asarray(clusters)
+        niveles, inversa = np.unique(clusters, return_inverse=True)
+        sums = np.bincount(inversa, weights=d)
+        counts = np.bincount(inversa)
+        sample = rng.integers(0, len(niveles), (n_boot, len(niveles)))
+        bs = sums[sample].sum(axis=1) / counts[sample].sum(axis=1)
     return d.mean(), np.percentile(bs, 2.5), np.percentile(bs, 97.5)
 
 
-def comparar(p_nuevo, p_viejo, y, n_boot=2000, seed=0):
+def comparar(p_nuevo, p_viejo, y, n_boot=2000, seed=0, clusters=None):
     """-> (delta, lo, hi) del log loss pareado. Negativo = el nuevo es mejor.
 
     Pareado sobre las mismas peleas: los errores de dos modelos parecidos estan muy
     correlacionados, asi que la diferencia tiene mucho menos ruido que cada log loss
     por separado. Regla de corte: el cambio queda solo si el IC95% no toca 0.
     """
-    return bootstrap(_perdida(y, p_nuevo) - _perdida(y, p_viejo), n_boot, seed)
+    return bootstrap(_perdida(y, p_nuevo) - _perdida(y, p_viejo), n_boot, seed,
+                     clusters=clusters)
 
 
 def veredicto(delta, lo, hi):
@@ -189,8 +310,8 @@ def veredicto(delta, lo, hi):
     return f"{delta:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  {corte}"
 
 
-def _veredicto(p_nuevo, p_viejo, y):
-    return veredicto(*comparar(p_nuevo, p_viejo, y))
+def _veredicto(p_nuevo, p_viejo, y, clusters=None):
+    return veredicto(*comparar(p_nuevo, p_viejo, y, clusters=clusters))
 
 
 def probar(df, corte):
@@ -203,20 +324,22 @@ def probar(df, corte):
     La regla de corte no cambia: pasa a FEATURES solo lo que deja el IC95% sin tocar cero.
     """
     bloques = [*features.BLOQUES.items(), ("TODAS_JUNTAS", features.CANDIDATAS)]
-    acum, base, ys = {n: [] for n, _ in bloques}, [], []
+    acum, base, ys, eventos = {n: [] for n, _ in bloques}, [], [], []
     for tr, te in rolling_origin(df, corte):
         base.append(probas(entrenar(tr, features.FEATURES), te, features.FEATURES)["blend"])
         for nombre, extra in bloques:
             cols = features.FEATURES + extra
             acum[nombre].append(probas(entrenar(tr, cols), te, cols)["blend"])
         ys.append(objetivo(te))
+        eventos.append(te["event"].to_numpy()[0::2])
 
-    y, p_base = np.concatenate(ys), np.concatenate(base)
+    y, p_base, clusters = np.concatenate(ys), np.concatenate(base), np.concatenate(eventos)
     print(f"\nbaseline log loss {log_loss(y, p_base):.4f} sobre {len(y)} peleas\n")
     for nombre, extra in bloques:
         p = np.concatenate(acum[nombre])
         cob = df[extra].notna().any(axis=1).mean()
-        print(f"  {nombre:18s} {log_loss(y, p):.4f}  {_veredicto(p, p_base, y)}"
+        print(f"  {nombre:18s} {log_loss(y, p):.4f}  "
+              f"{_veredicto(p, p_base, y, clusters=clusters)}"
               f"   ({len(extra)} cols, cobertura {cob:.0%})")
 
 
@@ -263,19 +386,24 @@ def calidad_por_tramo(p_mod, p_mkt, y):
     brecha = np.abs(p_mod - p_mkt)
     ll = lambda p, t: log_loss(y[t], p[t], labels=[0, 1])  # noqa: E731
     print(f"\ncalidad por tramo de |modelo - mercado| ({hay.sum()} peleas con cuota):")
-    desde = 0.0
+    desde, filas = 0.0, []
     for corte, nombre in ((0.05, "alta"), (0.15, "media"), (0.25, "baja"),
                           (1.01, "muy baja")):
         t = (brecha >= desde) & (brecha < corte)
         if t.sum():
-            print(f"  {nombre:10s} modelo {ll(p_mod, t):.4f}  mercado {ll(p_mkt, t):.4f}"
+            modelo_ll, mercado_ll = ll(p_mod, t), ll(p_mkt, t)
+            print(f"  {nombre:10s} modelo {modelo_ll:.4f}  mercado {mercado_ll:.4f}"
                   f"   n={t.sum()}")
+            filas.append({"from": desde, "to": corte, "label": nombre,
+                          "model_log_loss": float(modelo_ll),
+                          "market_log_loss": float(mercado_ll), "n": int(t.sum())})
         desde = corte
     # cuando eligen ganadores distintos, uno de los dos se equivoca: cual, y cuanto
     d = (p_mod > 0.5) != (p_mkt > 0.5)
     if d.sum():
         print(f"  discrepan en el ganador: modelo acierta {((p_mod[d] > 0.5) == y[d]).mean():.1%}"
               f", mercado {((p_mkt[d] > 0.5) == y[d]).mean():.1%}   n={d.sum()}")
+    return filas
 
 
 def apostabilidad(u, p_mod, p_mkt, y):
@@ -390,32 +518,35 @@ def main():
           f"{_veredicto(acum['con odds'][hay], acum['mercado'][hay], ys[hay])}")
 
     # --- de donde salen las etiquetas de confianza de la app
-    calidad_por_tramo(acum["blend"], acum["mercado"], ys)
+    calidad = calidad_por_tramo(acum["blend"], acum["mercado"], ys)
 
     # --- y si eso se apuesta, cuanto rinde: es lo que la app puede marcar como candidata
     apostabilidad(pd.concat(meta, ignore_index=True), acum["blend"],
                   acum["mercado"], ys)
 
     # --- metodo (ko/sub/dec): reporte sobre test, con el base rate como vara
-    m_met = entrenar_metodo(partes["train"])
-    p_met = m_met.predict_proba(partes["test"][features.CONTEXTO])
+    train_met = partes["train"][partes["train"]["metodo"].notna()]
+    test_met = partes["test"][partes["test"]["metodo"].notna()]
+    m_met = entrenar_metodo(train_met)
+    p_met = m_met.predict_proba(test_met[features.CONTEXTO])
     p_met = (p_met[0::2] + p_met[1::2]) / 2
-    y_met = partes["test"]["metodo"].to_numpy()[0::2]
-    frec = (partes["train"]["metodo"].iloc[0::2]
+    y_met = test_met["metodo"].to_numpy()[0::2]
+    frec = (train_met["metodo"].iloc[0::2]
             .value_counts(normalize=True).reindex(m_met.classes_).to_numpy())
     print(f"\nmetodo (test): log loss {log_loss(y_met, p_met, labels=m_met.classes_):.4f}"
           f" | base rate {log_loss(y_met, np.tile(frec, (len(y_met), 1)), labels=m_met.classes_):.4f}")
 
     # --- deploy: aprenden de TODO el historial, no solo de la ventana train
+    _, estado = features.build()
+    _atomic_csv(STATE, estado)
     bundle = {"metodo": {"hgb": entrenar_metodo(df), "cols": list(features.CONTEXTO)}}
     for nombre, c in (("sin_odds", cols), ("con_odds", con_odds)):
         hgb, lineal = entrenar(df, c)
         p_ida = lineal.predict_proba(df[c].head(2))[:, 1]
         assert abs(p_ida[0] + p_ida[1] - 1) < 1e-9, f"{nombre}: logistica no antisimetrica"
         bundle[nombre] = {"hgb": hgb, "lineal": lineal, "cols": list(c)}
-    MODEL.write_bytes(pickle.dumps(bundle))
-    _, estado = features.build()
-    estado.to_csv(STATE, index=False)
+    bundle["manifest"] = _manifest(df, partes, p, calidad)
+    _atomic_bytes(MODEL, pickle.dumps(bundle))
     print(f"\n{MODEL} y {STATE} ({len(estado)} peleadores) guardados")
 
 

@@ -50,6 +50,15 @@ with st.sidebar:
         st.cache_resource.clear()
 
 (modelo, estado), nombres = comunes.cargar()
+manifest = modelo.get("manifest", {})
+with st.sidebar:
+    if manifest:
+        st.caption("Modelo verificable")
+        st.caption(f"Entrenado: {manifest['trained_at_utc'][:10]} · datos hasta "
+                   f"{manifest['data']['max_date']} · commit "
+                   f"{(manifest.get('code_commit') or 'sin commit')[:7]}")
+        st.badge("Sin apuestas automáticas", color="gray",
+                 icon=":material/do_not_disturb_on:")
 
 
 def pagina_resumen():

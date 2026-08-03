@@ -68,6 +68,7 @@ def render(modelo, estado):
             "predictor": st.column_config.TextColumn("Predictor", pinned=True),
             "aciertos": st.column_config.NumberColumn("Aciertos"),
             "total": st.column_config.NumberColumn("Resultados"),
+            "carteleras": st.column_config.NumberColumn("Carteleras"),
             "acierto": st.column_config.ProgressColumn("Precisión", format="percent",
                                                          min_value=0, max_value=1),
             "peso": st.column_config.NumberColumn("Peso conservador", format="percent"),

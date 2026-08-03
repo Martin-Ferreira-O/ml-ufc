@@ -6,7 +6,7 @@ con y sin cuotas. Requiere `model.pkl` y `data/fighter_state.csv` (los genera tr
 """
 
 from ufc.datos import betano, cartelera, fetch, oddsapi
-from ufc.modelo import predict
+from ufc.modelo import features, predict, settlement, train
 
 A, B = "Khamzat Chimaev", "Sean Strickland"
 
@@ -145,15 +145,23 @@ def check_circunstancia():
     equivocada. El signo del efecto esta medido (39% y 41% de winrate contra 50%).
     """
     modelo, estado = predict.cargar()
-    normal = predict.predict(A, B, modelo, estado)["p_a"]
+    normal = predict.predict(A, B, modelo, estado, circ_a=(0.0, 0.0),
+                             circ_b=(0.0, 0.0))["p_a"]
     for i, etiqueta in enumerate(predict.CIRCUNSTANCIA):
         circ = tuple(1.0 if j == i else 0.0 for j in range(len(predict.CIRCUNSTANCIA)))
-        peor = predict.predict(A, B, modelo, estado, circ_a=circ)["p_a"]
-        mejor = predict.predict(A, B, modelo, estado, circ_b=circ)["p_a"]
+        ceros = (0.0, 0.0)
+        peor = predict.predict(A, B, modelo, estado, circ_a=circ,
+                               circ_b=ceros)["p_a"]
+        mejor = predict.predict(A, B, modelo, estado, circ_a=ceros,
+                                circ_b=circ)["p_a"]
         assert peor < normal < mejor, (etiqueta, peor, normal, mejor)
         # espejar la pelea y la circunstancia tiene que dar exactamente el complemento
-        inv = predict.predict(B, A, modelo, estado, circ_b=circ)["p_a"]
+        inv = predict.predict(B, A, modelo, estado, circ_a=ceros,
+                              circ_b=circ)["p_a"]
         assert abs(peor - (1 - inv)) < 1e-9, (etiqueta, peor, inv)
+    # Sin verificar no equivale a confirmar "no": el camino NaN existe y es estable.
+    desconocido = predict.predict(A, B, modelo, estado)
+    assert 0 < desconocido["p_a"] < 1
 
 
 def check_confianza():
@@ -176,7 +184,7 @@ def check_confianza():
 
 
 def check_apuesta():
-    """Solo se marca candidata en el tramo medido apostable, y con EV real positivo."""
+    """El EV puntual se sigue midiendo, pero nunca activa una apuesta automatica."""
     modelo, estado = predict.cargar()
     p = predict.predict(A, B, modelo, estado)["p_a"]
     par = lambda q: (round(1 / q, 2), round(1 / (1 - q), 2))  # noqa: E731
@@ -185,7 +193,8 @@ def check_apuesta():
     # ~0 -> confianza alta) pero el EV es +12%. Es la unica forma de tener las dos cosas.
     qa, qb = round(1.12 / p, 3), round(1.12 / (1 - p), 3)
     r = predict.predict(A, B, modelo, estado, cuotas=(qa, qb))
-    assert r["confianza"] == "alta" and r["apuesta"] in ("a", "b"), r
+    assert r["confianza"] == "alta" and r["apuesta"] is None, r
+    assert r["seguimiento"] in ("a", "b") and "sin apuesta" in r["estado_apuesta"], r
     assert abs(r["ev_a"] - (p * qa - 1)) < 1e-9 and r["ev_a"] > 0.1, r
 
     # el mismo EV enorme pero con brecha grande no se marca: es justo lo que pierde
@@ -196,6 +205,27 @@ def check_apuesta():
     r = predict.predict(A, B, modelo, estado,
                         cuotas=(round(0.97 / p, 3), round(0.97 / (1 - p), 3)))
     assert r["confianza"] == "alta" and r["apuesta"] is None, r
+
+
+def check_integridad_metodologica():
+    """Taxonomia, reloj antiguo, clusters y manifiesto reproducible."""
+    assert settlement.canonical_method("TKO - Doctor's Stoppage") == "ko"
+    assert settlement.method_market_class("DQ") is None
+    assert settlement.moneyline_result("D/D", "a") == "void"
+    assert settlement.moneyline_result("W/L", "a") == "win"
+    assert features._fight_minutes({"TIME": "2:30", "ROUND": 2,
+                                    "TIME FORMAT": "1 Rnd + OT (12-3)"}) == 14.5
+    assert features._fight_minutes({"TIME": "9:00", "ROUND": 1,
+                                    "TIME FORMAT": "No Time Limit"}) == 9.0
+    d = __import__("numpy").array([1.0, 1.0, -1.0, -1.0])
+    point, lo, hi = train.bootstrap(d, n_boot=200, seed=0,
+                                    clusters=["evento-a", "evento-a",
+                                              "evento-b", "evento-b"])
+    assert point == 0 and lo <= 0 <= hi, (point, lo, hi)
+    modelo, _ = predict.cargar()
+    manifest = modelo.get("manifest")
+    assert manifest and manifest["validation_domain"]["automatic_betting"] is False
+    assert manifest["settlement_rules"] == settlement.RULES_VERSION
 
 
 # Payload de The Odds API recortado: dos casas cotizando la misma pelea.
@@ -348,10 +378,11 @@ def check_predictores():
         assert os.environ["GEMINI_API_KEY"] == "secreto", os.environ.get("GEMINI_API_KEY")
         assert predictores.hay_api()
 
-    picks, res = predictores.PICKS, predictores.RESULTADOS
+    picks, audit, res = predictores.PICKS, predictores.PICKS_AUDIT, predictores.RESULTADOS
     try:
         with tempfile.TemporaryDirectory() as d:
             predictores.PICKS = pathlib.Path(d) / "picks.csv"
+            predictores.PICKS_AUDIT = pathlib.Path(d) / "picks_audit.csv"
             predictores.RESULTADOS = pathlib.Path(d) / "resultados.csv"
             # los tres coinciden en las dos primeras; el tercero se abre en la tercera
             for quien, lados in (("uno", "aaa"), ("dos", "aaa"), ("tres", "aab")):
@@ -366,6 +397,9 @@ def check_predictores():
             assert len(guardadas) == 9, guardadas
             assert (guardadas["predictor"] == "uno").sum() == 3, guardadas
             assert set(guardadas[guardadas["predictor"] == "uno"]["metodo"]) == {"ko"}
+            auditadas = predictores.leer_auditoria()
+            assert len(auditadas) == 12, auditadas
+            assert set(auditadas["accion"]) == {"pick_created", "pick_revised"}
 
             comp = predictores.comparar(peleas, guardadas, preds, cuotas)
             # LOCK: los tres del mismo lado y el modelo tambien. CONTRA: coinciden pero
@@ -414,6 +448,33 @@ def check_predictores():
             por_evento = predictores.aciertos(por_evento=True)
             assert set(por_evento["evento"]) == {evento}, por_evento
 
+            # UFCStats prevalece sobre un resultado manual conflictivo, incluso cuando
+            # el evento lleva otro acento y los peleadores vienen en orden inverso.
+            anteriores_real = cartelera.anteriores
+            evento_dos = "UFC 998: Otra prueba"
+            try:
+                oficiales = [
+                    {"evento": "UFC 999: Tést", "fecha": fecha, "peleas": [
+                        {"a": p["b"], "b": p["a"], "ganador": "b", "peso": ""}
+                        for p in peleas]},
+                    {"evento": evento_dos, "fecha": fecha, "peleas": [
+                        {"a": peleas[0]["a"], "b": peleas[0]["b"],
+                         "ganador": "a", "peso": ""}]},
+                ]
+                cartelera.anteriores = lambda limite=None: oficiales
+                predictores.guardar(
+                    [["uno", evento_dos, fecha, peleas[0]["a"], peleas[0]["b"],
+                      "a", "", None, None]], evento_dos, "uno")
+                resueltos = predictores.resolver_resultados(evento, peleas)
+                assert set(resueltos["origen"]) == {"ufcstats"}, resueltos
+                assert list(resueltos["ganador"]) == ["a", "a", "a"], resueltos
+                historico = predictores.aciertos().set_index("predictor")
+                assert historico.loc["uno", "aciertos"] == 4, historico
+                assert historico.loc["uno", "total"] == 4, historico
+                assert historico.loc["uno", "carteleras"] == 2, historico
+            finally:
+                cartelera.anteriores = anteriores_real
+
             # El ranking usa el historial revisado, aplica el prior conservador y marca
             # fuerte solo cuando el apoyo humano tiene confirmacion independiente.
             rank = predictores.ranking(peleas, guardadas, preds, cuotas)
@@ -430,7 +491,7 @@ def check_predictores():
             assert vieja.iloc[0]["origen"] == "legacy" and not vieja.iloc[0]["revisado"]
             assert predictores.aciertos().empty
     finally:
-        predictores.PICKS, predictores.RESULTADOS = picks, res
+        predictores.PICKS, predictores.PICKS_AUDIT, predictores.RESULTADOS = picks, audit, res
 
 
 def check_apuestas():
@@ -550,13 +611,20 @@ def check_app():
     tmp = pathlib.Path(tempfile.mkdtemp())
     ledger.LEDGER = tmp / "ledger.csv"                                  # sin ensuciar
     apuestas.APUESTAS, apuestas.DETALLE = tmp / "a.csv", tmp / "ad.csv"
-    predictores.PICKS, predictores.RESULTADOS = tmp / "p.csv", tmp / "r.csv"
+    predictores.PICKS = tmp / "p.csv"
+    predictores.PICKS_AUDIT = tmp / "p_audit.csv"
+    predictores.RESULTADOS = tmp / "r.csv"
     # con picks cargadas se renderiza la comparativa, que arma una columna por predictor
     evento = carteleras[0]
     for quien in ("uno", "dos"):
         predictores.guardar([[quien, evento["evento"], evento["fecha"], p["a"], p["b"],
                               "a", "", None, None] for p in evento["peleas"]],
                             evento["evento"], quien)
+    # Mismo evento historico con diferencia de acento: debe conservar la clave de picks
+    # y enriquecerse con el ganador que trae UFCStats.
+    predictores.guardar(
+        [["hist", "UFC Ánterior", "2026-07-25", "Alpha", "Beta",
+          "a", "", None, None]], "UFC Ánterior", "hist")
 
     modelo, estado = predict.cargar()
     nombres = predict.peleadores()
@@ -622,10 +690,32 @@ def check_app():
     pred = AppTest.from_function(_render_page,
                                  args=("ufc.ui.tab_predictores", (modelo, estado)),
                                  default_timeout=120).run()
-    pred.segmented_control[0].set_value("Picks").run()
+    pred.segmented_control[1].set_value("Picks").run()
     pred.selectbox[1].set_value("uno").run()
     assert not pred.exception, [e.value for e in pred.exception]
-    assert len(pred.segmented_control) == len(evento["peleas"]) + 1
+    assert len(pred.segmented_control) == len(evento["peleas"]) + 2
+    # El selector sigue vivo aunque Picks deje de renderizarse y el guardado confirma
+    # despues del rerun que refresca los datos.
+    pred.segmented_control[1].set_value("Comparar").run()
+    pred.segmented_control[1].set_value("Picks").run()
+    assert pred.selectbox[1].value == "uno", pred.selectbox[1].value
+    guardar = next(b for b in pred.button if b.label == "Guardar picks de uno")
+    guardar.click().run()
+    assert any("Picks de uno guardadas correctamente" in s.value for s in pred.success), \
+        [s.value for s in pred.success]
+    # La regresion reportada: Pasados es una vista explicita y abre el evento historico.
+    pred.segmented_control[0].set_value("Pasados").run()
+    from ufc import nombres
+    assert "ufc anterior" in nombres.normalizar(pred.selectbox[0].value), \
+        pred.selectbox[0].value
+    assert any("1 pasados disponibles" in c.value for c in pred.caption), \
+        [c.value for c in pred.caption]
+    pred.segmented_control[1].set_value("Ganadores").run()
+    assert len(pred.segmented_control) == len(historico["peleas"]) + 2
+    assert pred.segmented_control[2].value == "Alpha", pred.segmented_control[2].value
+    assert pred.segmented_control[2].disabled, pred.segmented_control[2]
+    assert "Guardar resultados" not in [b.label for b in pred.button], \
+        [b.label for b in pred.button]
 
     # Cartelera mantiene cuota de debutantes, consenso multi-casa y registro automatico.
     cart = AppTest.from_function(_render_page,
@@ -658,7 +748,7 @@ def check_app():
 
 if __name__ == "__main__":
     for check in (check_fetch, check_betano, check_simetria, check_circunstancia,
-                  check_confianza, check_apuesta,
+                  check_confianza, check_apuesta, check_integridad_metodologica,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
                   check_ledger, check_predictores, check_apuestas, check_cartelera,
                   check_app):

@@ -28,12 +28,12 @@ def render():
                                 " vs mercado",
                           help="Sobre las peleas ya resueltas: cuántas veces el favorito "
                                "del modelo terminó ganando.")
-            st.metric("Candidatas", resumen["candidatas"], border=True,
-                      help="Peleas donde el modelo coincide con la casa y aun así "
-                           "encuentra ventaja estimada. Es el único tramo que no perdió medido.")
+            st.metric("Candidatas históricas", resumen["candidatas"], border=True,
+                      help="Filas creadas por la regla anterior. La regla fue retirada y "
+                           "las versiones nuevas no generan candidatas automáticas.")
             if pd.notna(resumen["roi_candidatas"]):
-                st.metric("ROI candidatas", f"{resumen['roi_candidatas']:+.1%}",
-                          border=True, help="Importe fijo de 1 unidad en cada candidata resuelta.")
+                st.metric("ROI regla retirada", f"{resumen['roi_candidatas']:+.1%}",
+                          border=True, help="Resultado histórico de la regla anterior.")
             if pd.notna(resumen["clv_medio"]):
                 st.metric("Mejora frente al cierre", f"{resumen['clv_medio']:+.1%}", border=True,
                           help="Cuota registrada vs cuota de cierre del lado seguido. "
@@ -41,9 +41,9 @@ def render():
 
         tabla = comunes.historial(df_ledger)
         hechas = df_ledger["gano"].notna().to_numpy()
-        st.caption("Cada fila muestra **un solo lado** de la pelea: la candidata a valor "
-                   "si la hubo, si no el lado con mayor ventaja estimada. Las cuotas y el retorno son "
-                   "siempre de ese lado.")
+        st.caption("Cada fila muestra **un solo lado** de la pelea: la marca histórica si "
+                   "existió; si no, el lado con mayor EV puntual para seguimiento. Ninguna "
+                   "fila nueva es una recomendación de apuesta.")
         if not hechas.all():
             proximas = tabla[~hechas].sort_values("fecha")
             st.subheader(f"Sin resolver ({len(proximas)})", divider="gray")

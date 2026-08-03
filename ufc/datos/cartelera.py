@@ -123,7 +123,7 @@ def anteriores(limite=20):
                 "historico": True}
                for evento, cartelera in peleas.items() if cartelera]
     eventos.sort(key=lambda e: e["fecha"], reverse=True)
-    return eventos[:limite]
+    return eventos if limite is None else eventos[:limite]
 
 
 def contexto(peso, es_main):
@@ -138,11 +138,14 @@ def contexto(peso, es_main):
     return wc, float("women" in p), float(es_main)
 
 
-def predecir(pelea, modelo, estado, cuotas=None):
+def predecir(pelea, modelo, estado, cuotas=None, event_date=None,
+             circ_a=(float("nan"), float("nan")),
+             circ_b=(float("nan"), float("nan"))):
     """La pelea + su prediccion. Los debutantes no tienen historial: van con `error`."""
     try:
         return pelea | predict.predict(pelea["a"], pelea["b"], modelo, estado,
-                                       cuotas=cuotas)
+                                       event_date=event_date, cuotas=cuotas,
+                                       circ_a=circ_a, circ_b=circ_b)
     except ValueError:
         return pelea | {"error": "sin historial en UFC"}
 
@@ -162,7 +165,7 @@ def main():
         sys.exit(1)
     e = eventos[i - 1]
     modelo, estado = predict.cargar()
-    peleas = [predecir(p, modelo, estado) for p in e["peleas"]]
+    peleas = [predecir(p, modelo, estado, event_date=e["fecha"]) for p in e["peleas"]]
 
     print(f"\n{e['evento']} — {e['fecha']}\n")
     for n, p in enumerate(peleas, 1):

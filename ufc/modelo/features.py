@@ -8,13 +8,16 @@ aplicar sus updates (torneos de los UFC 1-8: un peleador pelea dos veces el mism
 Cada pelea produce dos filas: diffs A-B y la espejada B-A con el target invertido.
 """
 
+import os
+import pathlib
 import re
+import tempfile
 
 import numpy as np
 import pandas as pd
 
 from ufc import rutas
-from ufc.modelo import predict
+from ufc.modelo import predict, settlement
 
 RAW = rutas.RAW
 OUT = rutas.DATOS / "features.csv"
@@ -110,12 +113,24 @@ def _inches(x):
 
 
 def _fight_minutes(row):
-    """Duracion total: rounds completos de 5' + el tiempo del ultimo."""
+    """Duracion total usando la secuencia real declarada en ``TIME FORMAT``."""
     m = re.match(r"\s*(\d+):(\d+)", str(row["TIME"]))
-    last = (float(m.group(1)) + float(m.group(2)) / 60) if m else 0.0
-    # ponytail: asume rounds de 5'; los pocos formatos viejos (1 Rnd de 12'/15')
-    # subestiman la duracion, lo que solo diluye las tasas por minuto de esas peleas.
-    return (float(row["ROUND"]) - 1) * 5 + last
+    if not m:
+        return np.nan
+    last = float(m.group(1)) + float(m.group(2)) / 60
+    try:
+        round_number = int(row["ROUND"])
+    except (TypeError, ValueError):
+        return np.nan
+    declared = re.search(r"\((\d+(?:-\d+)*)\)", str(row.get("TIME FORMAT", "")))
+    if round_number <= 1 or not declared:
+        # No Time Limit solo tiene un round; para un formato desconocido con rounds
+        # previos no se inventan bloques de cinco minutos.
+        return last if round_number == 1 else np.nan
+    durations = [float(x) for x in declared.group(1).split("-")]
+    if round_number - 1 > len(durations):
+        return np.nan
+    return sum(durations[:round_number - 1]) + last
 
 
 # stats por pelea que se acumulan tal cual: propias y, espejadas, las del rival
@@ -126,9 +141,12 @@ _SUYAS = {"sig_abs": "sig_l", "sig_abs_a": "sig_a", "kd_abs": "kd",
 
 
 def _new_state():
-    st = dict(n=0, w=0, streak=0, minutes=0.0, finishes=0, last_date=None, elo=1500.0,
+    st = dict(n=0, w=0, streak=0, finishes=0, last_date=None, elo=1500.0,
               finished_against=0, opp_elo=0.0)
-    return {**st, **{k: 0.0 for k in (*_MIAS, *_SUYAS)}}
+    exposiciones = ("sig_for_minutes", "sig_against_minutes", "td_minutes",
+                    "sub_minutes", "ctrl_minutes", "kd_minutes",
+                    "kd_against_minutes")
+    return {**st, **{k: 0.0 for k in (*_MIAS, *_SUYAS, *exposiciones)}}
 
 
 def _snapshot(st, date, p):
@@ -136,7 +154,7 @@ def _snapshot(st, date, p):
 
     `p` es su fila de fisicos (o None si ufcstats no lo tiene).
     """
-    n, mins = st["n"], st["minutes"]
+    n = st["n"]
     div = lambda a, b: a / b if b else np.nan  # noqa: E731
     dob = p["dob"] if p is not None else pd.NaT
     return {
@@ -144,16 +162,20 @@ def _snapshot(st, date, p):
         "n_fights": float(n),
         "win_rate": div(st["w"], n),
         "streak": float(st["streak"]) if n else np.nan,
-        "slpm": div(st["sig_l"], mins),
-        "sapm": div(st["sig_abs"], mins),
+        "slpm": div(st["sig_l"], st["sig_for_minutes"]),
+        "sapm": div(st["sig_abs"], st["sig_against_minutes"]),
         "str_acc": div(st["sig_l"], st["sig_a"]),
-        "td_per15": div(st["td_l"], mins) * 15 if mins else np.nan,
+        "td_per15": div(st["td_l"], st["td_minutes"]) * 15
+                    if st["td_minutes"] else np.nan,
         "td_acc": div(st["td_l"], st["td_a"]),
-        "sub_per15": div(st["sub"], mins) * 15 if mins else np.nan,
-        "ctrl_per_min": div(st["ctrl"] / 60, mins),
+        "sub_per15": div(st["sub"], st["sub_minutes"]) * 15
+                     if st["sub_minutes"] else np.nan,
+        "ctrl_per_min": div(st["ctrl"] / 60, st["ctrl_minutes"]),
         "finish_rate": div(st["finishes"], n),
-        "kd_per15": div(st["kd"], mins) * 15 if mins else np.nan,
-        "kd_against_per15": div(st["kd_abs"], mins) * 15 if mins else np.nan,
+        "kd_per15": div(st["kd"], st["kd_minutes"]) * 15
+                    if st["kd_minutes"] else np.nan,
+        "kd_against_per15": div(st["kd_abs"], st["kd_against_minutes"]) * 15
+                            if st["kd_against_minutes"] else np.nan,
         "finished_against_rate": div(st["finished_against"], n),
         "td_def": 1 - div(st["td_abs_l"], st["td_abs_a"]),
         "str_def": 1 - div(st["sig_abs"], st["sig_abs_a"]),
@@ -306,12 +328,11 @@ def _load():
     results = results[results["fighter_b"].notna()]
     results["target"] = (results["OUTCOME"] == "W/L").astype(int)
     results["minutes"] = results.apply(_fight_minutes, axis=1)
-    results["finish"] = results["METHOD"].str.contains(
-        "KO/TKO|Submission", na=False, regex=True).astype(int)
-    # como termino: el target del modelo de metodo (simetrico ante el espejado)
-    results["metodo"] = np.where(
-        results["METHOD"].str.contains("KO/TKO", na=False), "ko",
-        np.where(results["METHOD"].str.contains("Submission", na=False), "sub", "dec"))
+    canonical = results["METHOD"].map(settlement.canonical_method)
+    results["finish"] = canonical.isin({settlement.KO, settlement.SUB}).astype(int)
+    # DQ/CNC/other no se fuerzan a decision: quedan fuera del target de props hasta
+    # contar con la regla exacta del sportsbook.
+    results["metodo"] = results["METHOD"].map(settlement.method_market_class)
     # contexto de la pelea ("Light Heavyweight" antes que "Heavyweight": el orden del
     # scan importa). Catch/Open Weight quedan NaN.
     lbs = pd.Series(np.nan, index=results.index)
@@ -418,7 +439,6 @@ def _update(states, agg, empty, f, date):
         st["n"] += 1
         st["w"] += gano
         st["streak"] = max(st["streak"], 0) + 1 if gano else min(st["streak"], 0) - 1
-        st["minutes"] += f["minutes"]
         st["finishes"] += f["finish"] * gano
         st["finished_against"] += f["finish"] * (1 - gano)
         st["last_date"] = date
@@ -429,6 +449,19 @@ def _update(states, agg, empty, f, date):
         for k, col in _SUYAS.items():
             if pd.notna(suyo[col]):
                 st[k] += suyo[col]
+        mins = f["minutes"]
+        if pd.notna(mins):
+            for col, exposure in (("sig_l", "sig_for_minutes"),
+                                  ("td_l", "td_minutes"),
+                                  ("sub", "sub_minutes"),
+                                  ("ctrl", "ctrl_minutes"),
+                                  ("kd", "kd_minutes")):
+                if pd.notna(mio[col]):
+                    st[exposure] += mins
+            if pd.notna(suyo["sig_l"]):
+                st["sig_against_minutes"] += mins
+            if pd.notna(suyo["kd"]):
+                st["kd_against_minutes"] += mins
 
 
 def _state_df(states, phys, previos):
@@ -454,7 +487,11 @@ def _state_df(states, phys, previos):
 def main():
     feats, estado = build()
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    feats.to_csv(OUT, index=False)
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", dir=OUT.parent,
+                                     delete=False) as tmp:
+        temporal = pathlib.Path(tmp.name)
+        feats.to_csv(tmp, index=False)
+    os.replace(temporal, OUT)
     assert feats["target"].notna().all(), "target con NaN"
     print(f"{OUT}: {len(feats)} filas ({len(feats) // 2} peleas), "
           f"{len(FEATURES)} features + {len(CANDIDATAS)} candidatas, "

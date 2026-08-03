@@ -5,6 +5,7 @@ import hashlib
 import pandas as pd
 import streamlit as st
 
+from ufc import nombres
 from ufc.datos import betano, cartelera
 from ufc.registro import predictores
 from ufc.ui import boleta, comunes
@@ -13,21 +14,55 @@ from ufc.ui import boleta, comunes
 def _eventos():
     actuales = comunes.carteleras()
     salida = [e | {"historico": False} for e in actuales]
-    vistos = {e["evento"] for e in actuales}
-    historicos = [*cartelera.anteriores(), *predictores.eventos_guardados()]
+    natural = lambda e: (e.get("fecha", ""), nombres.normalizar(e["evento"]))  # noqa: E731
+    vistos = {natural(e) for e in actuales}
+    # Lo guardado conserva el nombre exacto que enlaza con picks.csv. UFCStats lo
+    # enriquece con peso/ganador aunque el nombre del evento difiera solo por un acento.
+    guardados = predictores.eventos_guardados()
+    locales = {natural(e): e for e in cartelera.anteriores()}
+    historicos = []
+    for evento in guardados:
+        local = locales.pop(natural(evento), None)
+        if local:
+            por_par = {tuple(sorted((nombres.normalizar(p["a"]),
+                                     nombres.normalizar(p["b"])))): p
+                       for p in local["peleas"]}
+            peleas = []
+            for pelea in evento["peleas"]:
+                clave = tuple(sorted((nombres.normalizar(pelea["a"]),
+                                      nombres.normalizar(pelea["b"]))))
+                fuente = por_par.get(clave, {})
+                enriquecida = pelea | {"peso": fuente.get("peso", pelea.get("peso", ""))}
+                if fuente.get("ganador") in {"a", "b"}:
+                    ganador_nombre = fuente[fuente["ganador"]]
+                    enriquecida["ganador"] = (
+                        "a" if nombres.normalizar(ganador_nombre) ==
+                        nombres.normalizar(pelea["a"]) else "b")
+                peleas.append(enriquecida)
+            evento = evento | {"peleas": peleas}
+        historicos.append(evento)
+    historicos.extend(locales.values())
     for evento in historicos:
-        if evento["evento"] not in vistos:
+        if natural(evento) not in vistos:
             salida.append(evento | {"historico": True})
-            vistos.add(evento["evento"])
+            vistos.add(natural(evento))
     return salida
+
+
+def _clave_evento(evento):
+    """Valor estable para el widget; no guarda dicts mutables en session_state."""
+    return f"{evento.get('fecha', '')}|{evento['evento']}"
 
 
 def _preseleccionar(eventos):
     """Aplica una tarjeta histórica antes de crear los widgets de esta página."""
     solicitado = st.query_params.get("evento")
-    evento = next((e for e in eventos if e["evento"] == solicitado), None)
+    evento = next((e for e in eventos
+                   if nombres.normalizar(e["evento"]) == nombres.normalizar(solicitado)), None)
     if evento is not None:
-        st.session_state["evento_predictores"] = evento
+        st.session_state["periodo_predictores"] = (
+            "Pasados" if evento.get("historico") else "Próximos")
+        st.session_state["evento_predictores_id"] = _clave_evento(evento)
         st.session_state["vista_predictores"] = "Picks"
         st.query_params.clear()
 
@@ -42,13 +77,22 @@ def _valor(tabla, pelea, columna):
     return None if pd.isna(valor) else valor
 
 
-def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None):
+def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None,
+                    disabled=False):
     base = f"{prefijo}_{pelea['a']}_{pelea['b']}"
-    st.session_state.setdefault(base, valor)
+    if disabled:
+        # Si antes hubo una correccion manual, el resultado oficial debe reemplazar
+        # tambien ese estado transitorio antes de crear el widget bloqueado.
+        st.session_state[base] = valor
+    else:
+        st.session_state.setdefault(base, valor)
     with st.container(border=True):
         ganador = st.segmented_control(
             f"{pelea['a']} vs {pelea['b']}", [pelea["a"], pelea["b"]], key=base,
-            width="stretch", help="Elegí al ganador; volvé a tocarlo para dejar la pelea sin pick.")
+            width="stretch", disabled=disabled,
+            help=("Resultado oficial de UFCStats; no se puede editar."
+                  if disabled else
+                  "Elegí al ganador; volvé a tocarlo para dejar la pelea sin pick."))
         extras = {}
         if detalles:
             valores_detalle = valores_detalle or {}
@@ -74,8 +118,12 @@ def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None)
 
 def _cargar_picks(evento, peleas, picks_evento):
     conocidos = sorted(predictores.leer()["predictor"].dropna().unique())
+    confirmacion = st.session_state.pop("confirmacion_picks", None)
+    if confirmacion:
+        st.success(confirmacion, icon=":material/check_circle:")
     quien = st.selectbox(
         "Predictor", conocidos, index=None, accept_new_options=True,
+        key="predictor_seleccionado", persist_state="session",
         placeholder="Elegí o escribí un predictor nuevo…",
         help="Presioná Enter después de escribir un nombre nuevo.")
     if not quien:
@@ -129,33 +177,55 @@ def _cargar_picks(evento, peleas, picks_evento):
         predictores.guardar(
             predictores.filas_picks(tabla, peleas, evento["evento"], evento["fecha"], quien),
             evento["evento"], quien, origen="gemini" if imagen else "manual", revisado=True)
-        st.toast("Picks revisadas y guardadas", icon=":material/check_circle:")
+        st.session_state["confirmacion_picks"] = f"Picks de {quien} guardadas correctamente."
         st.rerun()
 
 
 def _resultados(evento, peleas):
-    guardados = predictores.leer_resultados(evento["evento"])
-    st.caption("Marcá cada ganador. Podés volver a este evento y corregirlo después.")
-    filas = []
-    for pelea in peleas:
-        lado = _valor(guardados, pelea, "ganador")
-        if lado not in {"a", "b"}:
-            lado = pelea.get("ganador")
+    resueltos = predictores.resolver_resultados(evento["evento"], peleas)
+    oficiales = int((resueltos["origen"] == "ufcstats").sum())
+    if oficiales:
+        st.caption("Los ganadores de UFCStats son oficiales y no se pueden editar. "
+                   "Solo podés completar resultados todavía ausentes de esa fuente.")
+    else:
+        st.caption("Marcá cada ganador. Podés volver a este evento y corregirlo después.")
+    filas_editables, peleas_editables = [], []
+    for pelea, resultado in zip(peleas, resueltos.itertuples()):
+        lado = resultado.ganador
         valor = pelea[lado] if lado in {"a", "b"} else None
-        ganador, _ = _selector_pelea(pelea, valor, f"resultado_{evento['evento']}")
-        filas.append({"ganador": ganador})
-    if st.button("Guardar resultados", type="primary", icon=":material/save:"):
-        tabla = pd.DataFrame(filas)
+        oficial = resultado.origen == "ufcstats"
+        ganador, _ = _selector_pelea(
+            pelea, valor, f"resultado_{evento['evento']}", disabled=oficial)
+        if not oficial:
+            peleas_editables.append(pelea)
+            filas_editables.append({"ganador": ganador})
+    if peleas_editables and st.button(
+            "Guardar resultados", type="primary", icon=":material/save:"):
+        tabla = pd.DataFrame(filas_editables)
         predictores.guardar_resultados(
-            predictores.filas_resultados(tabla, peleas, evento["evento"]), evento["evento"])
+            predictores.filas_resultados(
+                tabla, peleas_editables, evento["evento"]), evento["evento"])
         st.toast("Resultados guardados", icon=":material/check_circle:")
         st.rerun()
+    elif not peleas_editables:
+        st.info("Esta cartelera ya tiene todos sus resultados oficiales.",
+                icon=":material/verified:")
 
 
 def _comparativa(evento, peleas, picks_evento, modelo, estado):
-    tabla = comunes.cuotas_betano()
-    cuotas = [betano.buscar(tabla, p["a"], p["b"]) for p in peleas]
-    preds = [cartelera.predecir(p, modelo, estado, c) for p, c in zip(peleas, cuotas)]
+    if evento.get("historico"):
+        # El estado servido contiene toda la carrera hasta hoy. Ejecutarlo sobre una
+        # pelea pasada filtraría el futuro y falsearía la confirmación del modelo.
+        cuotas = [None] * len(peleas)
+        preds = [{"error": "sin forecast preevento congelado"}] * len(peleas)
+        st.info("En eventos pasados se evalúan las picks humanas congeladas. No se "
+                "recalcula hoy el modelo para esa fecha porque usaría historial futuro.",
+                icon=":material/history:")
+    else:
+        tabla = comunes.cuotas_betano()
+        cuotas = [betano.buscar(tabla, p["a"], p["b"]) for p in peleas]
+        preds = [cartelera.predecir(p, modelo, estado, c, evento["fecha"])
+                 for p, c in zip(peleas, cuotas)]
     rank = predictores.ranking(peleas, picks_evento, preds, cuotas)
     if not len(rank) or not (rank["predictores"] > 0).any():
         st.info("Todavía no hay picks revisadas para este evento.",
@@ -195,6 +265,7 @@ def _comparativa(evento, peleas, picks_evento, modelo, estado):
             "predictor": st.column_config.TextColumn("Predictor", pinned=True),
             "aciertos": st.column_config.NumberColumn("Aciertos"),
             "total": st.column_config.NumberColumn("Resultados"),
+            "carteleras": st.column_config.NumberColumn("Carteleras"),
             "acierto": st.column_config.ProgressColumn("Precisión", format="percent",
                                                          min_value=0, max_value=1),
             "peso": st.column_config.NumberColumn("Peso conservador", format="percent",
@@ -210,11 +281,31 @@ def render(modelo, estado):
         st.warning("No hay eventos disponibles.")
         return
     _preseleccionar(eventos)
-    if st.session_state.get("evento_predictores") not in eventos:
-        st.session_state["evento_predictores"] = eventos[0]
-    evento = st.selectbox("Evento", eventos, index=None, key="evento_predictores",
-                          format_func=lambda e: f"{e.get('fecha') or 'Sin fecha'} · {e['evento']}",
-                          width="stretch")
+    proximos = [e for e in eventos if not e.get("historico")]
+    pasados = [e for e in eventos if e.get("historico")]
+    periodo_inicial = "Próximos" if proximos else "Pasados"
+    st.session_state.setdefault("periodo_predictores", periodo_inicial)
+    if st.session_state["periodo_predictores"] == "Próximos" and not proximos:
+        st.session_state["periodo_predictores"] = "Pasados"
+    if st.session_state["periodo_predictores"] == "Pasados" and not pasados:
+        st.session_state["periodo_predictores"] = "Próximos"
+    periodo = st.segmented_control(
+        "Período", ["Próximos", "Pasados"], key="periodo_predictores",
+        width="stretch")
+    disponibles = proximos if periodo == "Próximos" else pasados
+    st.caption(f"{len(proximos)} próximos · {len(pasados)} pasados disponibles")
+    if not disponibles:
+        st.info(f"No hay eventos {periodo.lower()} en los datos locales.",
+                icon=":material/event_busy:")
+        return
+    por_clave = {_clave_evento(e): e for e in disponibles}
+    if st.session_state.get("evento_predictores_id") not in por_clave:
+        st.session_state["evento_predictores_id"] = next(iter(por_clave))
+    clave = st.selectbox(
+        "Evento", list(por_clave), key="evento_predictores_id",
+        format_func=lambda k: f"{por_clave[k].get('fecha') or 'Sin fecha'} · "
+                              f"{por_clave[k]['evento']}", width="stretch")
+    evento = por_clave[clave]
     peleas = evento["peleas"]
     picks_evento = predictores.leer(evento["evento"])
     st.session_state.setdefault("vista_predictores", "Comparar")

@@ -28,16 +28,7 @@ STATE = rutas.DATOS / "fighter_state.csv"
 # el mercado acierta 57.0% y el modelo 43.0%.
 # Sale de `train.calidad_por_tramo`, que lo imprime en cada corrida: son numeros que
 # cambian con el modelo, y una etiqueta de confianza vieja miente con autoridad.
-CONFIANZA = (
-    (0.05, "alta", "El modelo y el mercado coinciden. En este tramo el modelo acierta "
-                   "tanto como la casa (log loss 0.649 vs 0.650)."),
-    (0.15, "media", "Hay una discrepancia moderada. Historicamente el mercado empieza a "
-                    "ganarle al modelo desde aca (0.622 vs 0.642)."),
-    (1.01, "baja", "Discrepan fuerte, y eso NO es valor: donde el modelo mas se aparta "
-                   "rinde peor que una moneda (0.733) y la casa acierta 57.0% contra "
-                   "43.0% del modelo. Es senal de que el mercado sabe algo que el "
-                   "modelo no ve."),
-)
+CONFIANZA = ((0.05, "alta"), (0.15, "media"), (1.01, "baja"))
 
 
 # ROI de flat-bet out-of-sample (train.apostabilidad, 5773 peleas con cuota REAL, vig
@@ -51,8 +42,9 @@ CONFIANZA = (
 # el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada —
 # y encima es el mejor de 4 tramos elegido a posteriori, o sea que la evidencia real
 # es mas debil todavia. El Historial de la app (CLV) es el forward test que decide.
-APOSTABLE = "alta"
-ROI_APOSTABLE = "+1.9% IC95% [-5.6%, +9.4%] sobre 863 apuestas"
+# El mejor tramo fue elegido a posteriori y su IC95% cruza cero. Se conserva el EV como
+# diagnostico, pero ninguna version actual esta autorizada a recomendar una apuesta.
+APUESTAS_AUTOMATICAS = False
 
 
 # Circunstancias de la pelea que el modelo usa pero el estado del peleador no tiene.
@@ -119,6 +111,23 @@ def _mercado(cuotas):
     return float(_desvig(1 / cuotas[0], 1 / cuotas[1]))
 
 
+def _motivo(modelo, brecha, nivel):
+    buckets = modelo.get("manifest", {}).get("metrics", {}).get(
+        "coincidence_buckets", [])
+    fila = next((x for x in buckets
+                 if float(x["from"]) <= brecha < float(x["to"])), None)
+    prefijo = {
+        "alta": "Modelo y mercado están muy cerca.",
+        "media": "Hay una discrepancia moderada.",
+        "baja": "La discrepancia es fuerte y no equivale a valor.",
+    }[nivel]
+    if fila is None:
+        return prefijo + " No hay métricas compatibles serializadas para esta versión."
+    return (f"{prefijo} En la validación histórica tardía de esta versión, el log loss "
+            f"fue {fila['model_log_loss']:.3f} para el modelo y "
+            f"{fila['market_log_loss']:.3f} para el mercado (n={fila['n']}).")
+
+
 def metodo(modelo, wc_lbs=np.nan, mujer=np.nan, cinco_r=np.nan):
     """-> {"ko", "sub", "dec"}: como suele terminar una pelea de ese contexto.
 
@@ -134,23 +143,23 @@ def metodo(modelo, wc_lbs=np.nan, mujer=np.nan, cinco_r=np.nan):
     return dict(zip(sub["hgb"].classes_, (float(x) for x in p)))
 
 
-def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
-            circ_a=(0.0, 0.0), circ_b=(0.0, 0.0)):
+def predict(nombre_a, nombre_b, modelo=None, estado=None, event_date=None, cuotas=None,
+            circ_a=(np.nan, np.nan), circ_b=(np.nan, np.nan), hoy=None):
     """-> dict. `p_a`/`p_b` son del modelo que NO usa odds (la opinion independiente).
 
     Con `cuotas` = (decimal_a, decimal_b) agrega `p_a_mercado`, `p_a_con_odds`,
     `confianza` y `motivo`. Sin cuotas no hay nivel de confianza: es lo unico medido
     que predice el error, y sin cuota no se puede calcular.
 
-    `circ_a`/`circ_b` = (reemplazo, peso_no_dado), 0 o 1. No salen del estado del
-    peleador porque no son historial: son circunstancias de ESTA pelea, y quien la
-    carga las sabe (son noticia publica). El default (0, 0) es "campamento normal",
-    que es lo que pasa en ~9 de cada 10 peleas. Marcar reemplazo mueve la prediccion
-    fuerte y con razon: el que entra de reemplazo gana el 39% de las veces.
+    `event_date` fija la fecha programada usada para edad y descanso. `hoy` queda como
+    alias retrocompatible. `circ_a`/`circ_b` = (reemplazo, peso_no_dado), con 1=si,
+    0=no y NaN=desconocido. Desconocido es el default: ausencia de verificacion no se
+    convierte en un "no" inventado.
     """
     if modelo is None or estado is None:
         modelo, estado = cargar()
-    hoy = pd.Timestamp.today().normalize() if hoy is None else pd.Timestamp(hoy)
+    fecha = event_date if event_date is not None else hoy
+    fecha = pd.Timestamp.today().normalize() if fecha is None else pd.Timestamp(fecha)
 
     base = modelo["sin_odds"]
     filas, mezclados = [], []
@@ -161,7 +170,7 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
         fila = estado.loc[clave]
         if fila.get("homonimo"):
             mezclados.append(nombre)
-        filas.append({**_snapshot(fila, hoy, base["cols"]),
+        filas.append({**_snapshot(fila, fecha, base["cols"]),
                       **dict(zip(CIRCUNSTANCIA, (float(x) for x in circ)))})
 
     diffs = [filas[0][k] - filas[1][k] for k in base["cols"]]
@@ -184,21 +193,23 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, hoy=None, cuotas=None,
     out["p_a_mercado"] = p_mkt
     out["p_a_con_odds"] = _prob(odds, Xo[odds["cols"]])
     brecha = abs(p_a - p_mkt)
-    out["confianza"], out["motivo"] = next(
-        (nivel, texto) for corte, nivel, texto in CONFIANZA if brecha < corte)
+    out["confianza"] = next(nivel for corte, nivel in CONFIANZA if brecha < corte)
+    out["motivo"] = _motivo(modelo, brecha, out["confianza"])
     # Los textos de brecha grande citan el stat de cuando eligen ganadores distintos.
     # Si coinciden en el ganador eso no aplica: la discrepancia es solo de magnitud.
     if out["confianza"] != "alta" and (p_a > 0.5) == (p_mkt > 0.5):
         out["motivo"] += (" Ojo: aca coinciden en el ganador, lo que discrepa es la "
                           "magnitud (el modelo lo ve mucho mas parejo que la casa).")
 
-    # EV con la cuota que realmente paga la casa. `apuesta` solo se marca en el tramo
-    # que resulto no perder (ver ROI arriba): fuera de ahi un EV alto es ruido caro.
+    # EV puntual para diagnostico. No habilita una recomendacion: el mejor tramo fue
+    # elegido a posteriori, su intervalo cruza cero y las cuotas vivas no son el mismo
+    # dominio que las lineas historicas usadas para medirlo.
     out["ev_a"] = p_a * cuotas[0] - 1
     out["ev_b"] = (1 - p_a) * cuotas[1] - 1
     lado = "a" if out["ev_a"] >= out["ev_b"] else "b"
-    out["apuesta"] = (lado if out["confianza"] == APOSTABLE and out[f"ev_{lado}"] > 0
-                      else None)
+    out["apuesta"] = None
+    out["seguimiento"] = lado if out[f"ev_{lado}"] > 0 else None
+    out["estado_apuesta"] = "sin apuesta — señal no validada prospectivamente"
     return out
 
 

@@ -14,20 +14,24 @@ pero recien despues de correr el pipeline, y la gracia es medir el acierto la mi
 noche del evento.
 """
 
+import csv
 import json
 import os
 
 import numpy as np
 import pandas as pd
 
-from ufc import rutas
+from ufc import nombres, rutas
+from ufc.datos import cartelera
 
 PICKS = rutas.DATOS / "picks.csv"
+PICKS_AUDIT = rutas.DATOS / "picks_audit.csv"
 RESULTADOS = rutas.DATOS / "resultados.csv"
 COLS_BASE = ["predictor", "evento", "fecha_evento", "a", "b", "pick", "metodo",
              "round", "confianza"]
 COLS = [*COLS_BASE, "origen", "revisado"]
 COLS_RES = ["evento", "a", "b", "ganador"]
+COLS_AUDIT = ["ts_utc", "accion", "revisor", *COLS]
 
 # ponytail: el modelo barato alcanza para leer una infografia. Si llega a confundir de
 # que lado esta el tilde, subir a "gemini-3.5-flash" es cambiar esta linea.
@@ -162,12 +166,37 @@ def leer(evento=None):
     return _leer(PICKS, COLS, evento)
 
 
-def guardar(filas, evento, predictor, origen="manual", revisado=True):
+def _auditar(filas, accion, revisor="usuario_app", ts=None):
+    """Append-only: una revision nunca borra la seleccion que existia antes."""
+    if not filas:
+        return
+    PICKS_AUDIT.parent.mkdir(parents=True, exist_ok=True)
+    nuevo = not PICKS_AUDIT.exists()
+    timestamp = ts or pd.Timestamp.now(tz="UTC").isoformat()
+    with PICKS_AUDIT.open("a", newline="") as f:
+        writer = csv.writer(f)
+        if nuevo:
+            writer.writerow(COLS_AUDIT)
+        for fila in filas:
+            writer.writerow([timestamp, accion, revisor, *fila])
+
+
+def leer_auditoria(evento=None):
+    if not PICKS_AUDIT.exists():
+        return pd.DataFrame(columns=COLS_AUDIT)
+    df = pd.read_csv(PICKS_AUDIT)
+    return df[df["evento"] == evento].copy() if evento is not None else df
+
+
+def guardar(filas, evento, predictor, origen="manual", revisado=True,
+            revisor="usuario_app", ts=None):
     """Guarda todas las picks de una persona para un evento.
 
     Acepta las filas historicas de nueve columnas para mantener compatible la API. La
     UI nueva explicita el origen, y cualquier guardado humano confirma la revision.
     """
+    anteriores = leer(evento)
+    anteriores = anteriores[anteriores["predictor"] == predictor]
     completas = []
     for fila in filas:
         valores = list(fila)
@@ -176,6 +205,19 @@ def guardar(filas, evento, predictor, origen="manual", revisado=True):
         elif len(valores) != len(COLS):
             raise ValueError(f"Pick con {len(valores)} campos; se esperaban 9 u 11")
         completas.append(valores)
+    previas = {(r[3], r[4]): list(r) for r in anteriores[COLS].itertuples(index=False,
+                                                                          name=None)}
+    actuales = {(f[3], f[4]): f for f in completas}
+    creadas, revisadas = [], []
+    for clave, fila in actuales.items():
+        (revisadas if clave in previas else creadas).append(fila)
+    anuladas = []
+    for clave, fila in previas.items():
+        if clave not in actuales:
+            anuladas.append(fila)
+    _auditar(creadas, "pick_created", revisor, ts)
+    _auditar(revisadas, "pick_revised", revisor, ts)
+    _auditar(anuladas, "pick_voided", revisor, ts)
     _reemplazar(PICKS, COLS, completas, {"evento": evento, "predictor": predictor})
 
 
@@ -185,6 +227,56 @@ def leer_resultados(evento=None):
 
 def guardar_resultados(filas, evento):
     _reemplazar(RESULTADOS, COLS_RES, filas, {"evento": evento})
+
+
+def _clave_resultado(evento, a, b):
+    """Identidad estable aunque una fuente cambie acentos u orden de peleadores."""
+    par = tuple(sorted((nombres.normalizar(a), nombres.normalizar(b))))
+    return nombres.normalizar(evento), par
+
+
+def _indice_resultados():
+    """Ganador normalizado por evento/pelea; UFCStats prevalece sobre lo manual."""
+    indice = {}
+    for fila in leer_resultados().itertuples():
+        if fila.ganador not in {"a", "b"}:
+            continue
+        indice[_clave_resultado(fila.evento, fila.a, fila.b)] = {
+            "ganador": nombres.normalizar(fila.a if fila.ganador == "a" else fila.b),
+            "origen": "manual",
+        }
+    # Se recorren todos los eventos locales, no solo los 20 que se muestran en la UI.
+    for evento in cartelera.anteriores(limite=None):
+        for pelea in evento["peleas"]:
+            lado = pelea.get("ganador")
+            if lado not in {"a", "b"}:
+                continue
+            indice[_clave_resultado(evento["evento"], pelea["a"], pelea["b"])] = {
+                "ganador": nombres.normalizar(pelea[lado]),
+                "origen": "ufcstats",
+            }
+    return indice
+
+
+def resolver_resultados(evento, peleas):
+    """Resultados alineados con ``peleas`` y expresados en el orden recibido.
+
+    Devuelve una fila por pelea, incluso si todavia no tiene resultado. ``origen`` vale
+    ``ufcstats``, ``manual`` o ``None`` y permite a la UI bloquear solo lo autoritativo.
+    """
+    indice = _indice_resultados()
+    filas = []
+    for pelea in peleas:
+        encontrado = indice.get(_clave_resultado(evento, pelea["a"], pelea["b"]))
+        lado = None
+        if encontrado:
+            ganador = encontrado["ganador"]
+            lado = next((x for x in "ab"
+                         if nombres.normalizar(pelea[x]) == ganador), None)
+        filas.append({"evento": evento, "a": pelea["a"], "b": pelea["b"],
+                      "ganador": lado,
+                      "origen": encontrado["origen"] if encontrado and lado else None})
+    return pd.DataFrame(filas, columns=[*COLS_RES, "origen"])
 
 
 def eventos_guardados():
@@ -327,19 +419,39 @@ def parlay(df):
 
 def aciertos(por_evento=False, solo_revisadas=True):
     """-> DataFrame con aciertos/total/% por predictor sobre las peleas ya cargadas."""
-    claves = ["predictor", "evento"] if por_evento else ["predictor"]
-    picks, res = leer(), leer_resultados()
+    columnas = (["predictor", "evento", "aciertos", "total", "acierto", "carteleras"]
+                if por_evento else
+                ["predictor", "aciertos", "total", "acierto", "carteleras"])
+    picks = leer()
     if solo_revisadas and len(picks):
         picks = picks[picks["revisado"]]
-    if not len(picks) or not len(res):
-        return pd.DataFrame(columns=[*claves, "aciertos", "total", "acierto"])
-    df = picks.merge(res, on=["evento", "a", "b"])
-    if not len(df):
-        return pd.DataFrame(columns=[*claves, "aciertos", "total", "acierto"])
-    df["ok"] = df["pick"] == df["ganador"]
-    g = df.groupby(claves)["ok"].agg(aciertos="sum", total="count").reset_index()
+    if not len(picks):
+        return pd.DataFrame(columns=columnas)
+
+    indice = _indice_resultados()
+    filas = []
+    for pick in picks.itertuples():
+        encontrado = indice.get(_clave_resultado(pick.evento, pick.a, pick.b))
+        if not encontrado or pick.pick not in {"a", "b"}:
+            continue
+        elegido = nombres.normalizar(pick.a if pick.pick == "a" else pick.b)
+        filas.append({"predictor": pick.predictor, "evento": pick.evento,
+                      "evento_clave": nombres.normalizar(pick.evento),
+                      "ok": elegido == encontrado["ganador"]})
+    if not filas:
+        return pd.DataFrame(columns=columnas)
+    df = pd.DataFrame(filas)
+    if por_evento:
+        g = df.groupby(["predictor", "evento_clave"], sort=False).agg(
+            evento=("evento", "first"), aciertos=("ok", "sum"),
+            total=("ok", "count")).reset_index(drop=False)
+        g["carteleras"] = 1
+    else:
+        g = df.groupby("predictor").agg(
+            aciertos=("ok", "sum"), total=("ok", "count"),
+            carteleras=("evento_clave", "nunique")).reset_index()
     g["acierto"] = g["aciertos"] / g["total"]
-    return g.sort_values("acierto", ascending=False)
+    return g[columnas].sort_values("acierto", ascending=False)
 
 
 def confiabilidad():
@@ -349,7 +461,8 @@ def confiabilidad():
     """
     g = aciertos()
     if not len(g):
-        return pd.DataFrame(columns=["predictor", "aciertos", "total", "acierto", "peso"])
+        return pd.DataFrame(columns=["predictor", "aciertos", "total", "acierto",
+                                     "carteleras", "peso"])
     g["peso"] = (g["aciertos"] + 5) / (g["total"] + 10)
     return g
 

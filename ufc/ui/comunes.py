@@ -51,10 +51,11 @@ COLUMNAS = {
     "cuota": st.column_config.NumberColumn("Cuota", format="%.2f",
                                            help="La cuota congelada al registrar."),
     "confianza": st.column_config.TextColumn(
-        "Confianza", help="Qué tanto coincide el modelo con el mercado. Alta es la "
-                          "única que habilita una candidata."),
+        "Coincidencia", help="Qué tanto coincide el modelo con el mercado. No es una "
+                             "validación económica ni habilita apuestas."),
     "candidata": st.column_config.CheckboxColumn(
-        "Candidata", disabled=True, help="El único tramo que no perdió en el backtest."),
+        "Candidata histórica", disabled=True,
+        help="Marca heredada de una regla retirada; las versiones nuevas no la generan."),
     "ganador": st.column_config.TextColumn("Ganador"),
     "acerto": st.column_config.CheckboxColumn("Acertó", disabled=True),
     "clv": st.column_config.NumberColumn(
@@ -130,21 +131,16 @@ def resultado(a, b, r, cuotas):
                f"**{1 / r['p_a']:.2f}** · {b} **{1 / r['p_b']:.2f}**. Sirve para "
                "comparar contra cualquier casa, no solo Betano.")
     if cuotas:
-        ESTILO[r["confianza"]](f"**Confianza {r['confianza']}.** {r['motivo']}")
+        ESTILO[r["confianza"]](
+            f"**Coincidencia modelo-mercado {r['confianza']}.** {r['motivo']} "
+            "Esta etiqueta se midió con líneas históricas tardías y no valida la cuota "
+            "actual de Betano.")
         st.caption(f"Ventaja estimada — {a} {r['ev_a']:+.0%} · {b} {r['ev_b']:+.0%} "
                    "(probabilidad × cuota − 1, con el margen de la casa adentro).")
-        if r["apuesta"]:
-            quien, ev = ((a, r["ev_a"]) if r["apuesta"] == "a" else (b, r["ev_b"]))
-            st.success(
-                f"**Candidata según el modelo: {quien} ({ev:+.0%} de ventaja estimada).** "
-                "Único tramo que no "
-                f"pierde medido: ROI {predict.ROI_APOSTABLE}. El IC95% cruza el cero, "
-                "así que es break-even con esperanza, no una ventaja probada — "
-                "stake chico y plano.")
-        elif max(r["ev_a"], r["ev_b"]) > 0:
-            st.caption("Hay ventaja estimada en el papel, pero en este tramo de diferencia "
-                       "apostar un importe fijo rindió −7%: la señal aparece porque el modelo se "
-                       "aparta del mercado, y ahí el que se equivoca es el modelo.")
+        if max(r["ev_a"], r["ev_b"]) > 0:
+            st.warning("**Sin apuesta automática.** El EV mostrado usa una probabilidad "
+                       "puntual y no supera un límite conservador validado. Queda solo como "
+                       "seguimiento experimental.", icon=":material/do_not_disturb_on:")
 
 
 def historial(df):

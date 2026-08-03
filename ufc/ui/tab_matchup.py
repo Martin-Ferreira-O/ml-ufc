@@ -1,10 +1,20 @@
 """Pestania Matchup: dos peleadores a mano, con sus cuotas y circunstancias."""
 
+import datetime
+
+import numpy as np
 import pandas as pd
 import streamlit as st
 
 from ufc.modelo import predict
 from ufc.ui import comunes
+
+
+ESTADOS_CIRCUNSTANCIA = ["Desconocido", "No", "Sí"]
+
+
+def _circunstancia(valor):
+    return {"Desconocido": np.nan, "No": 0.0, "Sí": 1.0}[valor]
 
 
 def render(modelo, estado, nombres):
@@ -20,13 +30,17 @@ def render(modelo, estado, nombres):
                                       step=0.05, placeholder="ej. 1.50")
             cuota_b = st.number_input("Cuota decimal de B", min_value=1.01, value=None,
                                       step=0.05, placeholder="ej. 2.60")
-        st.caption("Sin las dos cuotas no hay nivel de confianza: la coincidencia con el "
+        st.caption("Sin las dos cuotas no hay nivel de coincidencia: compararlas con el "
                    "mercado es lo único que resultó predecir cuándo el modelo se equivoca.")
+        fecha_evento = st.date_input("Fecha programada del evento",
+                                     value=datetime.date.today())
+        st.caption("La edad y el descanso se calculan en esta fecha, no con el día en que "
+                   "abrís la app.")
         with st.container(horizontal=True):
-            ree_a = st.checkbox("A entró de reemplazo")
-            peso_a = st.checkbox("A no dio el peso")
-            ree_b = st.checkbox("B entró de reemplazo")
-            peso_b = st.checkbox("B no dio el peso")
+            ree_a = st.selectbox("A entró de reemplazo", ESTADOS_CIRCUNSTANCIA)
+            peso_a = st.selectbox("A no dio el peso", ESTADOS_CIRCUNSTANCIA)
+            ree_b = st.selectbox("B entró de reemplazo", ESTADOS_CIRCUNSTANCIA)
+            peso_b = st.selectbox("B no dio el peso", ESTADOS_CIRCUNSTANCIA)
         st.caption("Circunstancias de esta pelea, no del historial — el modelo no puede "
                    "deducirlas y son noticia pública. Medido sobre 8639 peleas: el que "
                    "entra de reemplazo gana el 39% y el que no da el peso el 41%, contra "
@@ -42,7 +56,9 @@ def render(modelo, estado, nombres):
         else:
             cuotas = (cuota_a, cuota_b) if cuota_a and cuota_b else None
             r = predict.predict(a, b, modelo, estado, cuotas=cuotas,
-                                circ_a=(ree_a, peso_a), circ_b=(ree_b, peso_b))
+                                event_date=fecha_evento,
+                                circ_a=(_circunstancia(ree_a), _circunstancia(peso_a)),
+                                circ_b=(_circunstancia(ree_b), _circunstancia(peso_b)))
 
             with st.container(border=True):
                 st.subheader(f"{a} vs {b}", divider="gray")
