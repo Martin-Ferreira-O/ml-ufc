@@ -9,8 +9,10 @@
 - Una cartelera cuenta para un predictor cuando tiene al menos una pick revisada que pudo
   liquidarse contra un ganador valido.
 - Los CSV actuales no se migran ni reescriben: la consolidacion se hace al leer.
+- Como seguimiento solicitado despues de completar el plan, las picks de carteleras
+  pasadas muestran un badge nativo con el peleador elegido: verde si acerto y rojo si
+  fallo. El selector sigue editable y no se agrega CSS personalizado.
 
 ## Open questions for the spec author
 
 Ninguna.
-

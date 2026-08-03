@@ -710,6 +710,15 @@ def check_app():
         pred.selectbox[0].value
     assert any("1 pasados disponibles" in c.value for c in pred.caption), \
         [c.value for c in pred.caption]
+    pred.segmented_control[1].set_value("Picks").run()
+    pred.selectbox[1].set_value("hist").run()
+    feedback = [m.value for m in pred.markdown if "-badge[" in m.value]
+    assert any(":green-badge[" in m and "Alpha · Acertó" in m for m in feedback), \
+        feedback
+    pred.segmented_control[2].set_value("Beta").run()
+    feedback = [m.value for m in pred.markdown if "-badge[" in m.value]
+    assert any(":red-badge[" in m and "Beta · Falló" in m for m in feedback), \
+        feedback
     pred.segmented_control[1].set_value("Ganadores").run()
     assert len(pred.segmented_control) == len(historico["peleas"]) + 2
     assert pred.segmented_control[2].value == "Alpha", pred.segmented_control[2].value

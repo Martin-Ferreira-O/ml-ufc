@@ -78,7 +78,7 @@ def _valor(tabla, pelea, columna):
 
 
 def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None,
-                    disabled=False):
+                    disabled=False, resultado=None):
     base = f"{prefijo}_{pelea['a']}_{pelea['b']}"
     if disabled:
         # Si antes hubo una correccion manual, el resultado oficial debe reemplazar
@@ -93,6 +93,14 @@ def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None,
             help=("Resultado oficial de UFCStats; no se puede editar."
                   if disabled else
                   "Elegí al ganador; volvé a tocarlo para dejar la pelea sin pick."))
+        if ganador and resultado in {"a", "b"}:
+            acerto = nombres.normalizar(ganador) == nombres.normalizar(pelea[resultado])
+            st.badge(
+                f"{ganador} · {'Acertó' if acerto else 'Falló'}",
+                color="green" if acerto else "red",
+                icon=":material/check_circle:" if acerto else ":material/cancel:",
+                help=f"Ganador oficial: {pelea[resultado]}",
+            )
         extras = {}
         if detalles:
             valores_detalle = valores_detalle or {}
@@ -159,15 +167,18 @@ def _cargar_picks(evento, peleas, picks_evento):
                 st.session_state["imagen_picks_aplicada"] = marca
             st.caption(f"Borrador leído: {len(leidas)} peleas. Confirmá cada selección.")
 
+    resultados = (predictores.resolver_resultados(evento["evento"], peleas)
+                  if evento.get("historico") else None)
     filas = []
-    for pelea in peleas:
+    for i, pelea in enumerate(peleas):
         lado = _valor(guardadas, pelea, "pick")
         valor = pelea[lado] if lado in {"a", "b"} else None
+        resultado = resultados.iloc[i]["ganador"] if resultados is not None else None
         valores_detalle = {c: _valor(guardadas, pelea, c)
                             for c in ("metodo", "round", "confianza")}
         ganador, extras = _selector_pelea(
             pelea, valor, f"pick_{evento['evento']}_{quien}", detalles=True,
-            valores_detalle=valores_detalle)
+            valores_detalle=valores_detalle, resultado=resultado)
         filas.append({"pelea": f"{pelea['a']} vs {pelea['b']}", "ganador": ganador,
                       "metodo": extras.get("metodo"), "round": extras.get("round"),
                       "confianza": (extras["confianza"] / 100
