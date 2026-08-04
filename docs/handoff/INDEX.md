@@ -13,3 +13,4 @@ that must be `done` first (or `—`). Retire finished slugs with `/archive <slug
 | predictor-ux-dashboard | done | ufc-fight-predictor | 2026-08-01 | T1-T7 completos; historial conectado al peso de predictores |
 | audit-improvements | done | predictor-ux-dashboard | 2026-08-02 | P0 verificable aplicado; eventos pasados visibles; suite/modelo/QA completos |
 | predictor-history-fixes | done | audit-improvements | 2026-08-02 | Historial corregido y verificado; feedback verde/rojo agregado a las picks pasadas |
+| fighter-intel | done | predictor-history-fixes | 2026-08-04 | VPS 22/22; Streamlit sincroniza por SSH solo ante metadata nueva |

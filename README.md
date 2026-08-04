@@ -11,10 +11,94 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Dos variables de entorno opcionales: `ODDS_API_KEY` ([The Odds API](https://the-odds-api.com),
-consenso multi-casa) y `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey),
-para leer las imágenes con las picks de los predictores). Sin ellas la app anda igual,
-solo que sin esas dos cosas.
+Credenciales opcionales: `ODDS_API_KEY` ([The Odds API](https://the-odds-api.com),
+consenso multi-casa), `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey),
+para leer picks e informes de inteligencia) y `X_BEARER_TOKEN` para las cuentas de X
+configuradas. Sin ellas la app anda igual; se omiten esas integraciones.
+
+## Inteligencia diaria de peleadores
+
+La pestana **Inteligencia** muestra un segundo pipeline: revisa una vez por dia a todos
+los peleadores del proximo evento, archiva noticias y feeds publicos, y pide a un LLM un
+resumen con citas y valoracion contextual `-5..+5`. Ese numero no modifica la prediccion
+ni es una recomendacion de apuesta.
+
+```sh
+# Solo recolectar y archivar, sin costo de IA
+.venv/bin/python -m ufc.intel.bot --sin-ia
+
+# Recomendado: Gemini 3.1 Flash-Lite (GEMINI_API_KEY en el entorno)
+.venv/bin/python -m ufc.intel.bot
+
+# Cobertura adicional: busqueda web de Gemini con URLs respaldadas
+.venv/bin/python -m ufc.intel.bot --grounding
+
+# Verificacion offline de 14 peleas / 28 peleadores
+.venv/bin/python test_intel.py
+
+# Salud operativa: exige run reciente, cobertura total y analisis de IA
+.venv/bin/python -m ufc.intel.bot --status
+
+# Ultimos scores, hallazgos y URLs citadas desde la VPS
+.venv/bin/python -m ufc.intel.bot --resumen
+```
+
+Si primero se corrio `--sin-ia` y luego se agrega la key el mismo dia, el run normal
+completa el analisis pendiente; no hace falta `--force`.
+
+Google News se consulta para todos. Antes de cada run real, el bot resuelve y cachea los
+perfiles que la ficha oficial de UFC publica en su JSON-LD. Los canales de YouTube se
+leen por RSS y las cuentas de X solo con `X_BEARER_TOKEN` y la API oficial; Instagram se
+muestra como identidad confirmada, pero no se scrapea. Wikidata sirve unicamente como
+candidato: nunca activa una cuenta por si solo.
+
+Para agregar o corregir feeds manualmente, copiar `config/intel_sources.example.csv` a
+`data/intel_sources.csv`: admite RSS/Atom y `kind=x`. `--grounding` agrega una llamada de
+Google Search por peleador y archiva solo las URLs conectadas por los respaldos de
+Gemini; si falla, el informe continua con las fuentes deterministas y deja una
+advertencia. Para Gemini 3 requiere un proyecto con facturacion, aunque las primeras
+5.000 busquedas mensuales del tier pagado no tienen cargo. Se activa en systemd con
+`UFC_INTEL_GROUNDING=1`.
+
+La VPS puede programarlo con las plantillas `deploy/ufc-intel.service` y
+`deploy/ufc-intel.timer`: reemplazar usuario/rutas, copiar el env de ejemplo a
+`/etc/ml-ufc/intel.env`, instalar las dos unidades en `/etc/systemd/system/` y habilitar:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now ufc-intel.timer
+systemctl list-timers ufc-intel.timer
+journalctl -u ufc-intel.service
+.venv/bin/python -m ufc.intel.bot --status
+```
+
+El timer ofrece tres ventanas diarias a las 09:15, 10:15 y 11:15 de
+`America/Santiago`. La primera ejecucion completa deja las siguientes sin trabajo ni
+llamadas de IA gracias a la idempotencia; si una fuente falla, las otras dos ventanas
+reintentan solamente los peleadores pendientes. Para fixtures, usar `--db` con una ruta
+temporal evita mezclar diagnosticos con el archivo productivo. El dia idempotente tambien
+se calcula en `UFC_INTEL_TIMEZONE=America/Santiago`, aunque la VPS mantenga UTC.
+
+La evaluacion completa de Hermes Agent, redes, proveedores y costos esta en
+[`docs/FIGHTER_INTEL_VIABILITY.md`](docs/FIGHTER_INTEL_VIABILITY.md).
+
+### Sincronizar Inteligencia desde Streamlit
+
+La app local no abre SQLite a traves de la red. La pestana **Inteligencia** consulta por
+SSH una metadata pequena de la VPS y compara `evento + dia de revision + updated_at`
+contra `data/intel.db`. El boton **Sincronizar ahora** solo se habilita cuando la VPS
+tiene una revision mas nueva. La descarga incluye la base y los CSV de identidades,
+valida integridad/esquema y reemplaza los archivos de forma atomica; las copias
+anteriores quedan con sufijo `.backup`.
+
+```sh
+cp .streamlit/secrets.example.toml .streamlit/secrets.toml
+.venv/bin/streamlit run app.py
+```
+
+`secrets.toml` esta ignorado por Git. La pantalla tambien muestra la ultima revision
+local/remota y la proxima ventana programada. El panel se actualiza solo cada cinco
+minutos; **Comprobar de nuevo** fuerza una lectura inmediata sin descargar nada.
 
 ## Pipeline
 
