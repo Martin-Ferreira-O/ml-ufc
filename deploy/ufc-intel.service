@@ -1,0 +1,18 @@
+[Unit]
+Description=Revision diaria de noticias para la cartelera UFC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=REEMPLAZAR_USUARIO
+Group=REEMPLAZAR_GRUPO
+WorkingDirectory=/opt/ml-ufc
+EnvironmentFile=/etc/ml-ufc/intel.env
+ExecStart=/opt/ml-ufc/.venv/bin/python -m ufc.intel.bot
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ml-ufc/data
+

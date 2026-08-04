@@ -7,7 +7,7 @@ import streamlit as st
 
 from ufc import rutas
 from ufc.ui import (comunes, tab_apuestas, tab_cartelera, tab_historial, tab_matchup,
-                    tab_predictores, tab_resumen)
+                    tab_intel, tab_predictores, tab_resumen)
 
 # El pipeline del README, en orden. fetch baja los CSVs, wiki y sherdog los completan,
 # features construye la tabla y train re-entrena el modelo que la app carga.
@@ -85,6 +85,10 @@ def pagina_seguimiento():
     tab_historial.render()
 
 
+def pagina_inteligencia():
+    tab_intel.render()
+
+
 PAGINA_PREDICTORES = st.Page(
     pagina_predictores, title="Predictores", icon=":material/groups:",
     url_path="predictores")
@@ -93,6 +97,8 @@ pagina = st.navigation([
     st.Page(pagina_resumen, title="Resumen", icon=":material/dashboard:", default=True),
     st.Page(pagina_cartelera, title="Cartelera", icon=":material/event:",
             url_path="cartelera"),
+    st.Page(pagina_inteligencia, title="Inteligencia", icon=":material/manage_search:",
+            url_path="inteligencia"),
     PAGINA_PREDICTORES,
     st.Page(pagina_apuestas, title="Apuestas", icon=":material/receipt_long:",
             url_path="apuestas"),

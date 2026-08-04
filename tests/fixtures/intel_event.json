@@ -1,0 +1,20 @@
+{
+  "evento": "UFC Test: Alpha vs Beta",
+  "fecha": "2026-08-08",
+  "peleas": [
+    {"peso": "Lightweight", "a": "Fighter 01", "b": "Fighter 02"},
+    {"peso": "Welterweight", "a": "Fighter 03", "b": "Fighter 04"},
+    {"peso": "Middleweight", "a": "Fighter 05", "b": "Fighter 06"},
+    {"peso": "Bantamweight", "a": "Fighter 07", "b": "Fighter 08"},
+    {"peso": "Featherweight", "a": "Fighter 09", "b": "Fighter 10"},
+    {"peso": "Heavyweight", "a": "Fighter 11", "b": "Fighter 12"},
+    {"peso": "Flyweight", "a": "Fighter 13", "b": "Fighter 14"},
+    {"peso": "Lightweight", "a": "Fighter 15", "b": "Fighter 16"},
+    {"peso": "Welterweight", "a": "Fighter 17", "b": "Fighter 18"},
+    {"peso": "Middleweight", "a": "Fighter 19", "b": "Fighter 20"},
+    {"peso": "Bantamweight", "a": "Fighter 21", "b": "Fighter 22"},
+    {"peso": "Featherweight", "a": "Fighter 23", "b": "Fighter 24"},
+    {"peso": "Heavyweight", "a": "Fighter 25", "b": "Fighter 26"},
+    {"peso": "Flyweight", "a": "Fighter 27", "b": "Fighter 28"}
+  ]
+}
