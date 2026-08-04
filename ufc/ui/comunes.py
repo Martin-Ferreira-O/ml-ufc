@@ -7,6 +7,9 @@ objeto funcion: `carteleras()` la llaman Cartelera y Predictores, y si cada una
 tuviera la suya serian dos requests a ESPN.
 """
 
+import datetime
+import html
+
 import pandas as pd
 import requests
 import streamlit as st
@@ -31,6 +34,10 @@ ETIQUETAS = {
     "mkt_logit": "cuota del mercado",
 }
 ESTILO = {"alta": st.success, "media": st.warning, "baja": st.error}
+# Las dos esquinas. Azul y ambar en vez del rojo/azul de la jaula real: el rojo ya
+# significa error en toda la app y un peleador no es un error. Van siempre con el
+# porcentaje escrito al lado, el color no es el unico indicador.
+COLOR_A, COLOR_B = "#60A5FA", "#F59E0B"
 # Emoji y no un badge de markdown porque en la celda de un dataframe el markdown sale
 # crudo: solo se renderiza en el overlay que aparece al clickearla.
 BADGE = {"alta": "Alta", "media": "Media", "baja": "Baja"}
@@ -111,32 +118,101 @@ def consenso():
 
 
 
+def cuenta_regresiva(fecha):
+    """Cuantos dias faltan, en palabras. Es lo primero que uno mira de una cartelera."""
+    try:
+        dias = (datetime.date.fromisoformat(str(fecha)[:10]) -
+                datetime.date.today()).days
+    except ValueError:
+        return None
+    if dias < 0:
+        return "Ya ocurrió"
+    return {0: "Hoy", 1: "Mañana"}.get(dias, f"En {dias} días")
+
+
+def encabezado(titulo, bajada, seccion=None, chips=()):
+    """El mismo bloque de titulo en las siete paginas.
+
+    El titulo global vive en la barra lateral, asi que cada pagina se presenta sola:
+    linea de seccion, titulo grande y una sola bajada. Los chips son la fila de estado
+    de esa pagina (cuantos eventos, si hay cuotas, etc.).
+    """
+    if seccion:
+        st.caption(seccion.upper())
+    st.title(titulo)
+    st.caption(bajada)
+    if chips:
+        with st.container(horizontal=True):
+            for texto, color, icono in chips:
+                st.badge(texto, color=color, icon=icono)
+
+
+def enfrentamiento(a, p_a, b, p_b, pie=None):
+    """Una sola barra partida con las dos esquinas, en vez de dos barras apiladas.
+
+    Es lo unico del rediseño que no existe como elemento nativo: `st.progress` dibuja
+    una barra por valor y dos barras seguidas se leen como dos peleas distintas, no como
+    los dos lados de la misma. Va todo con estilos inline para no inyectar CSS global.
+    """
+    izq = min(max(round(p_a * 100), 3), 97)  # los extremos igual tienen que verse
+    nom = "font:600 15px Inter,sans-serif;letter-spacing:.01em"
+    pct = "font:700 22px 'Barlow Condensed',sans-serif;line-height:1"
+    fila = "display:flex;align-items:baseline;justify-content:space-between;gap:12px"
+    st.html(
+        f'<div style="margin:2px 0 6px" role="img" aria-label="'
+        f'{html.escape(a)} {p_a:.0%}, {html.escape(b)} {p_b:.0%}">'
+        f'<div style="{fila}">'
+        f'<span style="{nom};color:{COLOR_A}">{html.escape(a)}</span>'
+        f'<span style="font:600 11px Inter,sans-serif;color:#8A94A6;'
+        f'letter-spacing:.18em">VS</span>'
+        f'<span style="{nom};color:{COLOR_B};text-align:right">{html.escape(b)}</span>'
+        f'</div>'
+        f'<div style="display:flex;gap:3px;margin:7px 0 5px;height:9px;'
+        f'border-radius:999px;overflow:hidden">'
+        f'<div style="width:{izq}%;background:{COLOR_A};border-radius:999px"></div>'
+        f'<div style="width:{100 - izq}%;background:{COLOR_B};border-radius:999px"></div>'
+        f'</div>'
+        f'<div style="{fila}">'
+        f'<span style="{pct};color:{COLOR_A}">{p_a:.0%}</span>'
+        f'<span style="font:400 12px Inter,sans-serif;color:#8A94A6;text-align:center">'
+        f'{html.escape(pie or "")}</span>'
+        f'<span style="{pct};color:{COLOR_B}">{p_b:.0%}</span>'
+        f'</div></div>')
+
+
 def resultado(a, b, r, cuotas):
     """Las probabilidades de una pelea. Igual en el matchup suelto y en la cartelera."""
     if "aviso" in r:
-        st.warning(f"**Historial mezclado.** {r['aviso']}")
+        st.warning(f"**Historial mezclado.** {r['aviso']}", icon=":material/merge:")
+    enfrentamiento(a, r["p_a"], b, r["p_b"], pie="probabilidad del modelo")
     with st.container(horizontal=True):
-        st.metric(f"Modelo — {a}", f"{r['p_a']:.1%}",
+        st.metric("Modelo", f"{r['p_a']:.1%}", border=True,
                   help="No usa la cuota. Es la opinión independiente.")
         if cuotas:
-            st.metric(f"Mercado — {a}", f"{r['p_a_mercado']:.1%}",
+            st.metric("Mercado", f"{r['p_a_mercado']:.1%}", border=True,
                       help="Probabilidad implícita sin el margen de la casa.")
-            st.metric(f"Pronóstico ajustado al mercado — {a}", f"{r['p_a_con_odds']:.1%}",
-                      delta=f"{r['p_a_con_odds'] - r['p_a_mercado']:+.1%} vs mercado",
+            st.metric("Modelo + mercado", f"{r['p_a_con_odds']:.1%}", border=True,
+                      delta=f"{r['p_a_con_odds'] - r['p_a_mercado']:+.1%}",
+                      delta_description="vs mercado",
                       help="Medido: no le gana al mercado solo. Está para ver "
                            "cuánto lo mueve el historial, no para apostarlo.")
-    st.progress(r["p_a"], text=f"{a} — {r['p_a']:.1%}")
-    st.progress(r["p_b"], text=f"{b} — {r['p_b']:.1%}")
-    st.caption(f"Cuota mínima para que haya valor según el modelo — {a} "
-               f"**{1 / r['p_a']:.2f}** · {b} **{1 / r['p_b']:.2f}**. Sirve para "
-               "comparar contra cualquier casa, no solo Betano.")
+        st.metric("Cuota mínima", f"{1 / r['p_a']:.2f}", border=True,
+                  delta=f"{b} {1 / r['p_b']:.2f}", delta_arrow="off", delta_color="off",
+                  help="Debajo de esta cuota el modelo no ve valor. Sirve para comparar "
+                       "contra cualquier casa, no solo Betano.")
+    st.caption(f"Las cuatro cifras son del lado de **{a}**, salvo donde diga {b}.")
     if cuotas:
         ESTILO[r["confianza"]](
             f"**Coincidencia modelo-mercado {r['confianza']}.** {r['motivo']} "
             "Esta etiqueta se midió con líneas históricas tardías y no valida la cuota "
-            "actual de Betano.")
-        st.caption(f"Ventaja estimada — {a} {r['ev_a']:+.0%} · {b} {r['ev_b']:+.0%} "
-                   "(probabilidad × cuota − 1, con el margen de la casa adentro).")
+            "actual de Betano.", icon=":material/compare_arrows:")
+        with st.container(horizontal=True):
+            st.badge(f"Ventaja {a} {r['ev_a']:+.0%}", icon=":material/trending_up:",
+                     color="orange" if r["ev_a"] > 0 else "gray")
+            st.badge(f"Ventaja {b} {r['ev_b']:+.0%}", icon=":material/trending_up:",
+                     color="orange" if r["ev_b"] > 0 else "gray")
+        st.caption("Ventaja estimada = probabilidad × cuota − 1, con el margen de la "
+                   "casa adentro.")
         if max(r["ev_a"], r["ev_b"]) > 0:
             st.warning("**Sin apuesta automática.** El EV mostrado usa una probabilidad "
                        "puntual y no supera un límite conservador validado. Queda solo como "

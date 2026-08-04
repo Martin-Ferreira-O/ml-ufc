@@ -632,7 +632,8 @@ def check_app():
     # El entrypoint abre solo Resumen: las paginas inactivas ya no se computan.
     at = AppTest.from_file("app.py", default_timeout=120).run()
     assert not at.exception, [e.value for e in at.exception]
-    assert [h.value for h in at.header] == ["Resumen"], [h.value for h in at.header]
+    # Cada pagina pone su propio st.title; el titulo global vive en el logo.
+    assert [t.value for t in at.title] == ["Resumen"], [t.value for t in at.title]
 
     # El boton muestra avisos sin convertirlos en un fallo y conserva el detalle de un
     # error real. Se simulan los procesos: la suite nunca ejecuta el pipeline pesado.
@@ -683,7 +684,7 @@ def check_app():
         pagina = AppTest.from_function(_render_page, args=(modulo, args),
                                        default_timeout=120).run()
         assert not pagina.exception, (titulo, [e.value for e in pagina.exception])
-        assert titulo in [h.value for h in pagina.header], (titulo, [h.value for h in pagina.header])
+        assert titulo in [t.value for t in pagina.title], (titulo, [t.value for t in pagina.title])
 
     # Abrir la carga historica renderiza un selector de dos lados por pelea y sus
     # detalles opcionales; esto cubre APIs que la comparativa vacia no ejecuta.
@@ -708,8 +709,8 @@ def check_app():
     from ufc import nombres
     assert "ufc anterior" in nombres.normalizar(pred.selectbox[0].value), \
         pred.selectbox[0].value
-    assert any("1 pasados disponibles" in c.value for c in pred.caption), \
-        [c.value for c in pred.caption]
+    assert any("1 pasados" in m.value for m in pred.markdown), \
+        [m.value for m in pred.markdown]
     pred.segmented_control[1].set_value("Picks").run()
     pred.selectbox[1].set_value("hist").run()
     feedback = [m.value for m in pred.markdown if "-badge[" in m.value]
@@ -731,24 +732,25 @@ def check_app():
                                  args=("ufc.ui.tab_cartelera", (modelo, estado)),
                                  default_timeout=120).run()
     assert not cart.selectbox, "la agenda reemplaza el selector desplegable"
-    assert [b.label for b in cart.button] == ["Seleccionado", "Ver cartelera",
+    assert [b.label for b in cart.button] == ["Cartelera en pantalla", "Ver cartelera",
                                                "Ver carteleras anteriores"], \
         [b.label for b in cart.button]
     cart.button[1].click().run()
-    assert cart.button[1].label == "Seleccionado" and cart.button[1].disabled, \
+    assert cart.button[1].label == "En pantalla" and cart.button[1].disabled, \
         [(b.label, b.disabled, b.value) for b in cart.button]
-    assert "UFC Prueba 2" in [h.value for h in cart.subheader], \
-        [h.value for h in cart.subheader]
+    assert "UFC Prueba 2" in [h.value for h in cart.header], \
+        [h.value for h in cart.header]
     cart.session_state["cartelera_evento_activo"] = "evento que ya no existe"
     cart.run()
-    assert cart.button[0].label == "Seleccionado" and cart.button[0].disabled, \
+    assert cart.button[0].label == "Cartelera en pantalla" and cart.button[0].disabled, \
         [(b.label, b.disabled) for b in cart.button]
     cart.button[2].click().run()
     assert "UFC Anterior" in [m.value.strip("*") for m in cart.markdown], \
         [m.value for m in cart.markdown]
     assert [b.label for b in cart.button] == ["Volver a próximos eventos"]
     cart.button[0].click().run()
-    precios = [c.value for c in cart.caption if c.value.startswith("Betano —")]
+    # La cuota es un badge por esquina, con el nombre del peleador adentro.
+    precios = [m.value for m in cart.markdown if "Betano —" in m.value]
     assert any("Nadie De La Nada 3.10" in c for c in precios), precios
     assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
     consensos = [c.value for c in cart.caption if c.value.startswith("Consenso")]

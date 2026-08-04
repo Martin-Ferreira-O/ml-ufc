@@ -6,6 +6,7 @@ import zoneinfo
 import streamlit as st
 
 from ufc.intel import identities, remote, store
+from ufc.ui import comunes
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -63,7 +64,12 @@ def _fecha_evento(metadata):
 def _panel_sincronizacion():
     config = _configuracion_vps()
     start, end = remote.proxima_ventana()
-    st.subheader("Actualización desde la VPS")
+    with st.expander("Actualización desde la VPS", icon=":material/cloud_sync:",
+                     expanded=True):
+        _cuerpo_sincronizacion(config, start, end)
+
+
+def _cuerpo_sincronizacion(config, start, end):
     st.caption("La VPS revisa las fuentes todos los días a las 09:15, 10:15 y "
                "11:15 de Santiago, con un retraso aleatorio de hasta 15 minutos. "
                "La primera ventana completa el informe; las otras solo reintentan "
@@ -81,10 +87,10 @@ def _panel_sincronizacion():
     next_window = ("Hoy" if start.date() == datetime.datetime.now(
         start.tzinfo).date() else "Mañana")
     with st.container(horizontal=True):
-        st.metric("Última copia local", _fecha_evento(local_metadata))
-        st.metric("Última revisión VPS", _fecha_evento(remote_metadata))
+        st.metric("Última copia local", _fecha_evento(local_metadata), border=True)
+        st.metric("Última revisión VPS", _fecha_evento(remote_metadata), border=True)
         st.metric("Próxima ventana VPS",
-                  f"{next_window} {start:%H:%M}–{end:%H:%M}")
+                  f"{next_window} {start:%H:%M}–{end:%H:%M}", border=True)
 
     if not config:
         st.info("Configura `[intel_vps]` en `.streamlit/secrets.toml` para consultar "
@@ -128,6 +134,12 @@ def _panel_sincronizacion():
             st.error(str(exc), icon=":material/error:")
 
 
+def _color(score):
+    if score is None:
+        return "gray"
+    return "red" if score <= -2 else "green" if score >= 2 else "gray"
+
+
 def _etiqueta(score):
     if score is None:
         return "Sin analizar"
@@ -138,82 +150,119 @@ def _etiqueta(score):
     return f"{score:+d} · sin impacto material"
 
 
-def render():
-    st.header("Inteligencia")
-    st.caption("Noticias y fuentes publicas revisadas a diario. La valoracion resume "
-               "contexto reciente; no cambia la probabilidad del modelo ni recomienda "
-               "una apuesta.")
-    if message := st.session_state.pop("intel_sync_message", None):
-        st.success(message, icon=":material/check_circle:")
-    _panel_sincronizacion()
-    evento = _ultimo()
-    if not evento:
-        st.info("Todavia no hay un informe local. Ejecuta `python -m ufc.intel.bot` "
-                "en la VPS para revisar la proxima cartelera.",
-                icon=":material/manage_search:")
-        return
+def _tarjeta(check, profiles):
+    report = check["report"]
+    score = check["score"]
+    color = _color(score)
+    with st.container(border=True):
+        with st.container(horizontal=True, horizontal_alignment="distribute",
+                          vertical_alignment="center"):
+            st.subheader(f"{check['fighter']} vs {check['opponent']}")
+            st.badge(_etiqueta(score), color=color,
+                     icon=":material/report:" if color == "red"
+                     else ":material/fact_check:")
+        st.write(report.get("resumen") or "Sin resumen.")
+        for warning in report.get("advertencias", []):
+            st.warning(warning, icon=":material/warning:")
 
-    st.subheader(evento["event_name"])
-    st.caption(f"Evento: {evento['event_date']} · ultima revision: "
-               f"{evento['updated_at'][:16].replace('T', ' ')} UTC")
-    total = len(evento["checks"])
-    evidencias = sum(x["evidence_count"] for x in evento["checks"])
-    alertas = sum((x["score"] or 0) <= -2 for x in evento["checks"])
-    profiles = _profiles(tuple(x["fighter"] for x in evento["checks"]))
-    covered = sum(any(p.get("confidence") == "official"
-                      for p in profiles[x["fighter"]]) for x in evento["checks"])
-    with st.container(horizontal=True):
-        st.metric("Peleadores revisados", f"{evento['completed']}/{total}")
-        st.metric("Evidencias archivadas", evidencias)
-        st.metric("Con perfil social", f"{covered}/{total}")
-        st.metric("Alertas contextuales", alertas)
-
-    st.warning("**No es una senal de apuesta.** El score todavia no tiene validacion "
-               "historica ni forward test; sirve para priorizar que evidencias leer.",
-               icon=":material/science:")
-    for check in evento["checks"]:
-        report = check["report"]
-        with st.container(border=True):
-            with st.container(horizontal=True, horizontal_alignment="distribute",
-                              vertical_alignment="center"):
-                st.subheader(f"{check['fighter']} vs {check['opponent']}")
-                score = check["score"]
-                color = "red" if score is not None and score <= -2 else \
-                    "green" if score is not None and score >= 2 else "gray"
-                st.badge(_etiqueta(score), color=color,
-                         icon=":material/report:" if color == "red"
-                         else ":material/fact_check:")
-            st.write(report.get("resumen") or "Sin resumen.")
-            for warning in report.get("advertencias", []):
-                st.warning(warning, icon=":material/warning:")
+        with st.container(horizontal=True, vertical_alignment="center"):
+            if check["confidence"]:
+                st.badge(f"Confianza {check['confidence']}", color="blue",
+                         icon=":material/verified:")
+            st.badge(f"{check['evidence_count']} evidencias", color="gray",
+                     icon=":material/inventory_2:")
             social = [x for x in profiles.get(check["fighter"], [])
                       if x.get("confidence") == "official"]
-            candidates = [x for x in profiles.get(check["fighter"], [])
-                          if x.get("confidence") == "candidate"]
-            if social:
-                st.caption("Perfiles identificados: " + " · ".join(
-                    f"[{x['platform'].capitalize()}]({x['url']})" for x in social))
-            elif candidates:
-                st.caption("Wikidata propuso perfiles, pero quedan pendientes de "
-                           "validacion antes de recolectarlos.")
-            if check["confidence"]:
-                st.caption(f"Confianza del resumen: {check['confidence']} · "
-                           f"{check['evidence_count']} evidencias revisadas")
-            evidencias_por_ref = {f"E{x['position']}": x for x in check["evidencias"]}
-            for hallazgo in report.get("hallazgos", []):
-                refs = [r for r in hallazgo.get("evidencias", [])
-                        if r in evidencias_por_ref]
-                st.markdown(f"**{hallazgo['titulo']}** · impacto "
-                            f"`{hallazgo['impacto']:+d}` · {hallazgo['certeza']}")
+            for perfil in social:
+                st.badge(perfil["platform"].capitalize(), color="violet",
+                         icon=":material/link:")
+        if social:
+            st.caption("Perfiles identificados: " + " · ".join(
+                f"[{x['platform'].capitalize()}]({x['url']})" for x in social))
+        elif any(x.get("confidence") == "candidate"
+                 for x in profiles.get(check["fighter"], [])):
+            st.caption("Wikidata propuso perfiles, pero quedan pendientes de "
+                       "validación antes de recolectarlos.")
+
+        evidencias_por_ref = {f"E{x['position']}": x for x in check["evidencias"]}
+        for hallazgo in report.get("hallazgos", []):
+            refs = [r for r in hallazgo.get("evidencias", [])
+                    if r in evidencias_por_ref]
+            # Cada hallazgo en su propia caja: antes eran tres parrafos seguidos y no se
+            # veia donde terminaba uno y empezaba el siguiente.
+            with st.container(border=True):
+                with st.container(horizontal=True, horizontal_alignment="distribute",
+                                  vertical_alignment="center"):
+                    st.markdown(f"**{hallazgo['titulo']}**")
+                    st.badge(f"impacto {hallazgo['impacto']:+d}",
+                             color=_color(hallazgo["impacto"]),
+                             icon=":material/adjust:")
+                st.caption(f"Certeza: {hallazgo['certeza']}")
                 st.write(hallazgo["explicacion"])
                 if refs:
                     st.caption("Fuentes: " + " · ".join(
                         f"[{r} — {evidencias_por_ref[r]['source']}]"
                         f"({evidencias_por_ref[r]['url']})" for r in refs))
-            if check["evidencias"]:
-                with st.expander(f"Ver las {len(check['evidencias'])} evidencias"):
-                    for e in check["evidencias"]:
-                        st.markdown(f"**E{e['position']} · [{e['title']}]({e['url']})**")
-                        st.caption(f"{e['source']} · {e['published_at'] or 'fecha desconocida'}")
-                        if e["snippet"]:
-                            st.write(e["snippet"])
+        if check["evidencias"]:
+            with st.expander(f"Ver las {len(check['evidencias'])} evidencias",
+                             icon=":material/library_books:"):
+                for e in check["evidencias"]:
+                    st.markdown(f"**E{e['position']} · [{e['title']}]({e['url']})**")
+                    st.caption(f"{e['source']} · {e['published_at'] or 'fecha desconocida'}")
+                    if e["snippet"]:
+                        st.write(e["snippet"])
+
+
+def render():
+    if message := st.session_state.pop("intel_sync_message", None):
+        st.success(message, icon=":material/check_circle:")
+    evento = _ultimo()
+    checks = evento["checks"] if evento else []
+    alertas = sum((x["score"] or 0) <= -2 for x in checks)
+
+    chips = []
+    if evento:
+        chips.append((evento["event_name"], "blue", ":material/stadium:"))
+        if alertas:
+            chips.append((f"{alertas} alertas contextuales", "red",
+                          ":material/notification_important:"))
+    comunes.encabezado(
+        "Inteligencia",
+        "Noticias y fuentes públicas revisadas a diario. La valoración resume contexto "
+        "reciente; no cambia la probabilidad del modelo ni recomienda una apuesta.",
+        seccion="Contexto", chips=chips)
+
+    _panel_sincronizacion()
+    if not evento:
+        st.info("Todavía no hay un informe local. Ejecutá `python -m ufc.intel.bot` "
+                "en la VPS para revisar la próxima cartelera.",
+                icon=":material/manage_search:")
+        return
+
+    total = len(checks)
+    evidencias = sum(x["evidence_count"] for x in checks)
+    profiles = _profiles(tuple(x["fighter"] for x in checks))
+    covered = sum(any(p.get("confidence") == "official"
+                      for p in profiles[x["fighter"]]) for x in checks)
+    with st.container(horizontal=True):
+        st.metric("Peleadores revisados", f"{evento['completed']}/{total}", border=True)
+        st.metric("Evidencias archivadas", evidencias, border=True)
+        st.metric("Con perfil social", f"{covered}/{total}", border=True)
+        st.metric("Alertas contextuales", alertas, border=True,
+                  help="Peleadores con un score de −2 o menos.")
+    st.caption(f"Evento del {evento['event_date']} · última revisión "
+               f"{evento['updated_at'][:16].replace('T', ' ')} UTC")
+
+    st.warning("**No es una señal de apuesta.** El score todavía no tiene validación "
+               "histórica ni forward test; sirve para priorizar qué evidencias leer.",
+               icon=":material/science:")
+
+    # Filtro de pantalla: en una cartelera completa son 20 fichas y lo que se busca casi
+    # siempre es la que trae una alerta.
+    solo_alertas = st.toggle("Solo peleadores con alerta", key="intel_solo_alertas",
+                             disabled=not alertas,
+                             help="Score de −2 o menos." if alertas else
+                                  "Ningún peleador tiene alerta en esta revisión.")
+    visibles = [c for c in checks if not solo_alertas or (c["score"] or 0) <= -2]
+    for check in visibles:
+        _tarjeta(check, profiles)

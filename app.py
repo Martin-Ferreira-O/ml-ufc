@@ -16,14 +16,16 @@ PIPELINE = ["ufc.datos.fetch", "ufc.datos.wiki", "ufc.datos.sherdog",
 
 st.set_page_config(page_title="Predictor UFC", page_icon=":material/sports_mma:",
                    layout="wide")
-st.title("Predictor de peleas UFC")
-st.caption("Picks revisadas, contexto de mercado y seguimiento de tus apuestas reales.")
+# La marca vive en la cabecera y cada pagina pone su propio titulo con
+# `comunes.encabezado`. Antes el titulo global se repetia arriba de cada uno.
+st.logo(str(rutas.RAIZ / "assets" / "marca.svg"), size="large")
 
 with st.sidebar:
     st.subheader("Datos")
     st.caption("El pipeline completo, en orden. Tarda unos minutos: wiki y sherdog "
                "están cacheados y solo piden lo nuevo, features y train no.")
-    if st.button("Actualizar y re-entrenar", icon=":material/refresh:"):
+    if st.button("Actualizar y re-entrenar", icon=":material/refresh:", type="primary",
+                 width="stretch"):
         with st.status("Actualizando…", expanded=True) as estado_run:
             hubo_avisos = False
             for script in PIPELINE:
@@ -53,16 +55,20 @@ with st.sidebar:
 manifest = modelo.get("manifest", {})
 with st.sidebar:
     if manifest:
-        st.caption("Modelo verificable")
-        st.caption(f"Entrenado: {manifest['trained_at_utc'][:10]} · datos hasta "
-                   f"{manifest['data']['max_date']} · commit "
-                   f"{(manifest.get('code_commit') or 'sin commit')[:7]}")
+        st.subheader("Modelo")
+        with st.container(border=True, gap=None):
+            st.caption("Entrenado")
+            st.markdown(f"**{manifest['trained_at_utc'][:10]}**")
+            st.caption(f"Datos hasta {manifest['data']['max_date']}")
+            st.caption(f"Commit `{(manifest.get('code_commit') or 'sin commit')[:7]}`")
         st.badge("Sin apuestas automáticas", color="gray",
                  icon=":material/do_not_disturb_on:")
+        st.caption("La app no apuesta ni recomienda apostar por su cuenta. Todo lo que "
+                   "queda registrado lo confirmás vos.")
 
 
 def pagina_resumen():
-    tab_resumen.render(modelo, estado)
+    tab_resumen.render(modelo, estado, PAGINA_CARTELERA)
 
 
 def pagina_cartelera():
@@ -92,11 +98,12 @@ def pagina_inteligencia():
 PAGINA_PREDICTORES = st.Page(
     pagina_predictores, title="Predictores", icon=":material/groups:",
     url_path="predictores")
+PAGINA_CARTELERA = st.Page(pagina_cartelera, title="Cartelera", icon=":material/event:",
+                           url_path="cartelera")
 
 pagina = st.navigation([
     st.Page(pagina_resumen, title="Resumen", icon=":material/dashboard:", default=True),
-    st.Page(pagina_cartelera, title="Cartelera", icon=":material/event:",
-            url_path="cartelera"),
+    PAGINA_CARTELERA,
     st.Page(pagina_inteligencia, title="Inteligencia", icon=":material/manage_search:",
             url_path="inteligencia"),
     PAGINA_PREDICTORES,

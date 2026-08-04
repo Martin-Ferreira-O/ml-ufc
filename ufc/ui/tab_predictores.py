@@ -87,6 +87,8 @@ def _selector_pelea(pelea, valor, prefijo, detalles=False, valores_detalle=None,
     else:
         st.session_state.setdefault(base, valor)
     with st.container(border=True):
+        if pelea.get("peso"):
+            st.badge(pelea["peso"], color="gray", icon=":material/monitor_weight:")
         ganador = st.segmented_control(
             f"{pelea['a']} vs {pelea['b']}", [pelea["a"], pelea["b"]], key=base,
             width="stretch", disabled=disabled,
@@ -250,24 +252,38 @@ def _comparativa(evento, peleas, picks_evento, modelo, estado):
         st.metric("Picks revisadas", int(picks_evento["revisado"].sum()), border=True)
     for fila in rank.itertuples():
         with st.container(border=True):
-            st.subheader(fila.pelea)
-            if fila.seleccion:
-                st.markdown(f"**Selección humana: {fila.seleccion}** · apoyo {fila.apoyo:.0%} "
-                            f"({fila.votos} de {fila.predictores})")
-                with st.container(horizontal=True):
-                    st.badge(fila.senal, color="green" if fila.fuerte else "gray")
-                    if fila.modelo_confirma:
-                        st.badge("Modelo coincide", color="blue")
-                    if fila.mercado_confirma:
-                        st.badge("Mercado coincide", color="orange")
-                if pd.notna(fila.cuota):
-                    if st.button("Agregar a la boleta", icon=":material/add_shopping_cart:",
-                                 key=f"rank_bet_{evento['evento']}_{fila.orden}"):
-                        boleta.agregar(evento["evento"], evento["fecha"], fila.a, fila.b,
-                                       fila.lado, fila.cuota)
-                        st.toast("Selección agregada", icon=":material/check:")
-            else:
+            with st.container(horizontal=True, horizontal_alignment="distribute",
+                              vertical_alignment="center"):
+                st.subheader(fila.pelea)
+                if fila.seleccion:
+                    st.badge(fila.senal, color="green" if fila.fuerte else "gray",
+                             icon=":material/verified:" if fila.fuerte
+                             else ":material/how_to_vote:")
+            if not fila.seleccion:
                 st.caption("No hay una mayoría humana para esta pelea.")
+                continue
+            st.markdown(f"**Selección humana: {fila.seleccion}**")
+            st.progress(float(fila.apoyo),
+                        text=f"apoyo {fila.apoyo:.0%} · {fila.votos} de "
+                             f"{fila.predictores} predictores")
+            with st.container(horizontal=True, vertical_alignment="center"):
+                st.badge("Modelo coincide" if fila.modelo_confirma
+                         else "Modelo no coincide",
+                         color="blue" if fila.modelo_confirma else "gray",
+                         icon=":material/psychology:")
+                st.badge("Mercado coincide" if fila.mercado_confirma
+                         else "Mercado no coincide",
+                         color="orange" if fila.mercado_confirma else "gray",
+                         icon=":material/storefront:")
+                if pd.notna(fila.cuota):
+                    st.badge(f"Cuota {fila.cuota:.2f}", color="violet",
+                             icon=":material/sell:")
+            if pd.notna(fila.cuota):
+                if st.button("Agregar a la boleta", icon=":material/add_shopping_cart:",
+                             key=f"rank_bet_{evento['evento']}_{fila.orden}"):
+                    boleta.agregar(evento["evento"], evento["fecha"], fila.a, fila.b,
+                                   fila.lado, fila.cuota)
+                    st.toast("Selección agregada", icon=":material/check:")
 
     confianza = predictores.confiabilidad()
     if len(confianza):
@@ -285,44 +301,61 @@ def _comparativa(evento, peleas, picks_evento, modelo, estado):
 
 
 def render(modelo, estado):
-    st.header("Predictores")
-    st.caption("Cargá, corregí y compará picks humanas sin editar nombres dentro de tablas.")
     eventos = _eventos()
     if not eventos:
-        st.warning("No hay eventos disponibles.")
+        comunes.encabezado("Predictores", "Cargá, corregí y compará picks humanas.",
+                           seccion="Consenso")
+        st.warning("No hay eventos disponibles.", icon=":material/event_busy:")
         return
     _preseleccionar(eventos)
     proximos = [e for e in eventos if not e.get("historico")]
     pasados = [e for e in eventos if e.get("historico")]
+    conocidos = predictores.leer()
+    comunes.encabezado(
+        "Predictores",
+        "Cargá, corregí y compará picks humanas sin editar nombres dentro de tablas.",
+        seccion="Consenso",
+        chips=[(f"{len(proximos)} próximos", "blue", ":material/event_upcoming:"),
+               (f"{len(pasados)} pasados", "gray", ":material/history:"),
+               (f"{conocidos['predictor'].nunique()} predictores", "violet",
+                ":material/groups:")] if len(conocidos) else
+              [(f"{len(proximos)} próximos", "blue", ":material/event_upcoming:"),
+               (f"{len(pasados)} pasados", "gray", ":material/history:")])
+
     periodo_inicial = "Próximos" if proximos else "Pasados"
     st.session_state.setdefault("periodo_predictores", periodo_inicial)
     if st.session_state["periodo_predictores"] == "Próximos" and not proximos:
         st.session_state["periodo_predictores"] = "Pasados"
     if st.session_state["periodo_predictores"] == "Pasados" and not pasados:
         st.session_state["periodo_predictores"] = "Próximos"
-    periodo = st.segmented_control(
-        "Período", ["Próximos", "Pasados"], key="periodo_predictores",
-        width="stretch")
-    disponibles = proximos if periodo == "Próximos" else pasados
-    st.caption(f"{len(proximos)} próximos · {len(pasados)} pasados disponibles")
+
+    # Los tres controles juntos en una barra: son un solo gesto ("qué evento miro y para
+    # qué"), antes estaban sueltos entre medio del contenido.
+    with st.container(border=True):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            periodo = st.segmented_control(
+                "Período", ["Próximos", "Pasados"], key="periodo_predictores")
+            st.session_state.setdefault("vista_predictores", "Comparar")
+            st.segmented_control("Vista", ["Comparar", "Picks", "Ganadores"],
+                                 key="vista_predictores")
+        disponibles = proximos if periodo == "Próximos" else pasados
+        if disponibles:
+            por_clave = {_clave_evento(e): e for e in disponibles}
+            if st.session_state.get("evento_predictores_id") not in por_clave:
+                st.session_state["evento_predictores_id"] = next(iter(por_clave))
+            clave = st.selectbox(
+                "Evento", list(por_clave), key="evento_predictores_id",
+                format_func=lambda k: f"{por_clave[k].get('fecha') or 'Sin fecha'} · "
+                                      f"{por_clave[k]['evento']}", width="stretch")
     if not disponibles:
         st.info(f"No hay eventos {periodo.lower()} en los datos locales.",
                 icon=":material/event_busy:")
         return
-    por_clave = {_clave_evento(e): e for e in disponibles}
-    if st.session_state.get("evento_predictores_id") not in por_clave:
-        st.session_state["evento_predictores_id"] = next(iter(por_clave))
-    clave = st.selectbox(
-        "Evento", list(por_clave), key="evento_predictores_id",
-        format_func=lambda k: f"{por_clave[k].get('fecha') or 'Sin fecha'} · "
-                              f"{por_clave[k]['evento']}", width="stretch")
     evento = por_clave[clave]
     peleas = evento["peleas"]
     picks_evento = predictores.leer(evento["evento"])
-    st.session_state.setdefault("vista_predictores", "Comparar")
-    vista = st.segmented_control(
-        "Vista", ["Comparar", "Picks", "Ganadores"],
-        key="vista_predictores", width="stretch")
+    vista = st.session_state["vista_predictores"]
+    st.header(evento["evento"], divider="gray")
     if vista == "Picks":
         _cargar_picks(evento, peleas, picks_evento)
     elif vista == "Ganadores":

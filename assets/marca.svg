@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 44" width="200" height="44"
+     role="img" aria-label="Predictor UFC">
+  <!-- El octagono, partido en las dos esquinas de la barra de enfrentamiento. -->
+  <g fill="none" stroke-width="3.2" stroke-linejoin="round">
+    <path d="M22 6 H30 L38 14 V30 L30 38 H22" stroke="#F59E0B"/>
+    <path d="M22 6 H14 L6 14 V30 L14 38 H22" stroke="#60A5FA"/>
+  </g>
+  <circle cx="22" cy="22" r="3" fill="#E7EAF0"/>
+  <text x="52" y="21" font-family="'Barlow Condensed',Oswald,'Arial Narrow',sans-serif"
+        font-size="19" font-weight="700" letter-spacing="1.6" fill="#E7EAF0">PREDICTOR</text>
+  <text x="52" y="36" font-family="Inter,'Helvetica Neue',sans-serif"
+        font-size="10.5" font-weight="600" letter-spacing="3.4" fill="#8A94A6">UFC · MMA</text>
+</svg>

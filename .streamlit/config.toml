@@ -1,30 +1,57 @@
-# Tema oscuro. `base = "dark"` la deja fija en oscuro a proposito: es una app que se mira
-# de noche, la vispera de un evento, y el toggle claro/oscuro solo aparece si estan
-# definidas [theme.light] y [theme.dark] las dos.
+# Tema "Fight Night". Sigue fijo en oscuro a proposito: es una app que se mira de noche,
+# la vispera de un evento, y el toggle claro/oscuro solo aparece si estan definidas
+# [theme.light] y [theme.dark] las dos.
+#
+# El primario dejo de ser rojo: el rojo es el color de error de la app (st.error, las
+# alertas de intel, las picks falladas) y usarlo tambien para los botones hacia que un
+# CTA y un fallo se vieran igual. Ahora el primario es azul de dato y el ambar queda
+# reservado para lo unico que habla de plata: cuota, valor, ventaja estimada.
 [theme]
 base = "dark"
-primaryColor = "#D20A0A"
-backgroundColor = "#0E1013"
-secondaryBackgroundColor = "#171A1F"
-textColor = "#E8EAED"
-borderColor = "#2A2F37"
-linkColor = "#FF5A5A"
-codeBackgroundColor = "#171A1F"
+primaryColor = "#2563EB"
+backgroundColor = "#0B0E14"
+secondaryBackgroundColor = "#141924"
+textColor = "#E7EAF0"
+borderColor = "#222A38"
+linkColor = "#7DD3FC"
+codeBackgroundColor = "#10141D"
+codeTextColor = "#A5B4FC"
+
+# Barlow Condensed en los titulos da la tipografia de cartel de pelea; Inter mantiene
+# legible todo el cuerpo, que es donde vive el texto largo de los descargos.
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-headingFontWeights = [700, 600, 600, 600, 600, 600]
-baseRadius = "8px"
-buttonRadius = "8px"
+headingFont = "'Barlow Condensed':https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseFontSize = 15
+headingFontSizes = ["42px", "31px", "23px", "18px", "15px", "13px"]
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+codeFontSize = "0.85rem"
+
+baseRadius = "10px"
+buttonRadius = "full"
 linkUnderline = false
 showWidgetBorder = true
-# Los que usa st.success / st.warning / st.error, que es de donde sale todo el color
-# semantico de la app (el dispatch ESTILO en app.py).
-greenColor = "#22C55E"
-redColor = "#EF4444"
+showSidebarBorder = true
+
+# Los que usa st.success / st.warning / st.error y los badges, que es de donde sale todo
+# el color semantico de la app (el dispatch ESTILO en comunes.py).
+greenColor = "#34D399"
+redColor = "#F43F5E"
 orangeColor = "#F59E0B"
-chartCategoricalColors = ["#D20A0A", "#F59E0B", "#22C55E", "#3B82F6", "#A855F7", "#EC4899", "#94A3B8"]
-dataframeHeaderBackgroundColor = "#171A1F"
+yellowColor = "#FACC15"
+blueColor = "#60A5FA"
+violetColor = "#A78BFA"
+grayColor = "#8A94A6"
+
+chartCategoricalColors = ["#60A5FA", "#F59E0B", "#34D399", "#A78BFA", "#F43F5E", "#22D3EE", "#8A94A6"]
+chartSequentialColors = ["#0B1220", "#122036", "#18304F", "#1D4269", "#215583", "#26699D", "#3D82B8", "#5F9CCD", "#8AB8DF", "#BCD7EF"]
+
+dataframeHeaderBackgroundColor = "#141924"
+dataframeBorderColor = "#222A38"
 
 [theme.sidebar]
-backgroundColor = "#0A0C0F"
-secondaryBackgroundColor = "#171A1F"
-borderColor = "#2A2F37"
+backgroundColor = "#080A0F"
+secondaryBackgroundColor = "#141924"
+codeBackgroundColor = "#10141D"
+borderColor = "#1B2230"
+primaryColor = "#60A5FA"

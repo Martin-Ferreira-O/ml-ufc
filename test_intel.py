@@ -454,8 +454,8 @@ class IntelTest(unittest.TestCase):
     def test_ui_estado_vacio(self):
         at = AppTest.from_function(pagina_intel_vacia).run(timeout=20)
         self.assertFalse(at.exception)
-        self.assertEqual(at.header[0].value, "Inteligencia")
-        self.assertTrue(any("Todavia no hay" in item.value for item in at.info))
+        self.assertEqual(at.title[0].value, "Inteligencia")
+        self.assertTrue(any("Todavía no hay" in item.value for item in at.info))
 
 
 if __name__ == "__main__":
