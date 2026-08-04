@@ -281,6 +281,8 @@ def argumentos(argv=None):
                    help="verifica que el ultimo run sea reciente, completo y con IA")
     p.add_argument("--resumen", action="store_true",
                    help="imprime scores, hallazgos y URLs del ultimo informe")
+    p.add_argument("--metadata-json", action="store_true",
+                   help="imprime metadata JSON para comparar copias de la base")
     p.add_argument("--max-age-hours", type=float, default=36,
                    help="frescura maxima admitida por --status (default: 36)")
     p.add_argument("--db", type=pathlib.Path,
@@ -298,6 +300,11 @@ def main(argv=None):
         if args.resumen:
             with store.conectar(args.db or store.DB) as db:
                 return 0 if imprimir_resumen(db) else 1
+        if args.metadata_json:
+            with store.conectar(args.db or store.DB) as db:
+                print(json.dumps(store.metadata(db), ensure_ascii=False,
+                                 sort_keys=True))
+            return 0
         eventos = (_cargar_fixture(args.evento_fixture) if args.evento_fixture
                    else cartelera.proximas(dias=8))
         if args.sin_red and not args.evento_fixture:

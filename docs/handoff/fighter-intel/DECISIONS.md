@@ -1,4 +1,4 @@
-> Handoff `fighter-intel`. Autor: Codex. Actualizado: 2026-08-03 22:59 -04.
+> Handoff `fighter-intel`. Autor: Codex. Actualizado: 2026-08-04 08:35 -04.
 > Spec escrito contra `025a282` en la rama `fighter-intel`; authored in place by Codex.
 
 # DECISIONS — fighter-intel
@@ -45,6 +45,14 @@
   reportes, incluso si el LLM desobedece el prompt.
 - **Dia operativo en Santiago.** Tanto `OnCalendar` como la clave idempotente diaria
   usan `America/Santiago`; los timestamps de auditoria permanecen en UTC.
+- **La UI local sincroniza artefactos por SSH, no sirve SQLite remotamente.** No se abre
+  otro puerto ni se exponen datos en HTTP. Streamlit consulta `--metadata-json` cada
+  cinco minutos y habilita la descarga solo si `(event_date, run_day, updated_at)` es
+  posterior a la copia local. Descarga primero a temporales, valida SQLite/CSV, conserva
+  `.backup` y recien entonces reemplaza los tres archivos locales.
+- **La vista muestra un solo dia de revision.** SQLite conserva el historial diario,
+  pero `ultimo_evento()` filtra el `run_day` mas reciente; sumar todos los dias de una
+  cartelera duplicaria peleadores y falsearia la cobertura despues del segundo run.
 
 ## Open questions for the spec author
 

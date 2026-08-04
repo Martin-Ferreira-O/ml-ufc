@@ -1,4 +1,4 @@
-> Handoff `fighter-intel`. Autor: Codex. Actualizado: 2026-08-03 22:59 -04.
+> Handoff `fighter-intel`. Autor: Codex. Actualizado: 2026-08-04 08:35 -04.
 > Spec escrito contra `025a282` en la rama `fighter-intel`; authored in place by Codex.
 
 # PROGRESS — fighter-intel
@@ -11,6 +11,7 @@
 - [x] Pestana Streamlit
 - [x] Operacion y estudio de costos/viabilidad
 - [x] Activacion final: llamada real a Gemini y timer instalado en la VPS del usuario
+- [x] Sincronizacion local desde Streamlit condicionada por metadata nueva de la VPS
 
 ## Work log
 
@@ -44,3 +45,11 @@
   salud por ausencia, dia operativo Santiago y `--resumen`. Timer activo con tres
   ventanas 09:15/10:15/11:15 America/Santiago; corrida manual systemd y `--status`
   devuelven exit 0.
+- 2026-08-04 08:35 — Codex — agregada sincronizacion SSH desde la pestana: compara la
+  revision local/remota cada cinco minutos, deshabilita la descarga cuando no hay
+  novedades, informa las
+  tres ventanas systemd y su proximo rango aleatorio, descarga SQLite + identidades,
+  valida integridad y conserva `.backup`. Corregida la lectura para mostrar solo el
+  ultimo `run_day` del evento. Endpoint `--metadata-json` desplegado y ciclo real
+  validado: local 2026-08-02 -> VPS 2026-08-03 -> boton deshabilitado al quedar iguales.
+  `test_intel.py` pasa 20 tests y `test_app.py` sus 16 checks.

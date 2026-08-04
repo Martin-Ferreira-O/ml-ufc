@@ -3,6 +3,7 @@
 import datetime
 import json
 import pathlib
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -12,7 +13,7 @@ from unittest import mock
 
 from streamlit.testing.v1 import AppTest
 
-from ufc.intel import analyzer, bot, identities, sources, store
+from ufc.intel import analyzer, bot, identities, remote, sources, store
 
 
 RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel>
@@ -30,10 +31,83 @@ ATOM = b"""<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
 def pagina_intel_vacia():
     from ufc.ui import tab_intel
     tab_intel._ultimo = lambda: None
+    tab_intel._metadata_local = lambda: {"event": None}
+    tab_intel._configuracion_vps = lambda: None
     tab_intel.render()
 
 
 class IntelTest(unittest.TestCase):
+    def test_ultimo_evento_usa_solo_la_revision_diaria_mas_reciente(self):
+        evento = {"evento": "UFC Diario", "fecha": "2026-08-08"}
+        report = {"resumen": "Sin novedades.", "estado": "informativo",
+                  "confianza": "alta", "valoracion": 0, "hallazgos": []}
+        with tempfile.TemporaryDirectory() as td:
+            db = store.conectar(pathlib.Path(td) / "intel.db")
+            for day, fighter in (("2026-08-02", "Anterior"),
+                                 ("2026-08-03", "Actual")):
+                run = store.crear_run(db, evento, day, "gemini", "modelo", 1)
+                store.guardar_check(db, run, day, evento, fighter, "Rival",
+                                    "complete", [], report)
+                store.terminar_run(db, run, "complete", 1, 0)
+            latest = store.ultimo_evento(db)
+            self.assertEqual(latest["run_day"], "2026-08-03")
+            self.assertEqual([x["fighter"] for x in latest["checks"]], ["Actual"])
+            self.assertEqual(store.metadata(db)["event"]["fighters"], 1)
+            db.close()
+
+    def test_detecta_novedad_y_calcula_proxima_ventana(self):
+        local = {"event": {"event_date": "2026-08-08", "run_day": "2026-08-02",
+                           "updated_at": "2026-08-02T12:00:00+00:00"}}
+        current = {"event": {"event_date": "2026-08-08", "run_day": "2026-08-03",
+                             "updated_at": "2026-08-03T12:00:00+00:00"}}
+        self.assertTrue(remote.hay_novedades(current, local))
+        self.assertFalse(remote.hay_novedades(current, current))
+        now = datetime.datetime(2026, 8, 4, 12, 0, tzinfo=datetime.timezone.utc)
+        start, end = remote.proxima_ventana(now)
+        self.assertEqual((start.hour, start.minute), (9, 15))
+        self.assertEqual(end - start, datetime.timedelta(minutes=15))
+
+    def test_sincronizacion_descarga_valida_respalda_y_reemplaza(self):
+        evento = {"evento": "UFC Remoto", "fecha": "2026-08-08"}
+        report = {"resumen": "Actualizado.", "estado": "informativo",
+                  "confianza": "alta", "valoracion": 0, "hallazgos": []}
+        with tempfile.TemporaryDirectory() as td:
+            base = pathlib.Path(td)
+            source_dir, target_dir = base / "source", base / "target"
+            source_dir.mkdir()
+            target_dir.mkdir()
+            remote_db = store.conectar(source_dir / "intel.db")
+            run = store.crear_run(remote_db, evento, "2026-08-03", "gemini", "m", 1)
+            store.guardar_check(remote_db, run, "2026-08-03", evento, "A", "B",
+                                "complete", [], report)
+            store.terminar_run(remote_db, run, "complete", 1, 0)
+            remote_db.close()
+            (source_dir / "intel_profiles.csv").write_text(
+                "fighter,platform,url,confidence\nA,x,https://x.com/a,official\n")
+            (source_dir / "intel_identity_status.csv").write_text(
+                "fighter,status,checked_at\nA,official,2026-08-03T12:00:00Z\n")
+            targets = {name: target_dir / name for name in remote.FILES}
+            for path in targets.values():
+                path.write_text("copia anterior")
+
+            def fake_runner(command, **kwargs):
+                name = pathlib.Path(command[-2].split(":", 1)[1]).name
+                shutil.copy2(source_dir / name, command[-1])
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            old_files = remote.FILES
+            try:
+                remote.FILES = targets
+                metadata = remote.sincronizar(
+                    remote.Config("example.com", "user"), runner=fake_runner)
+            finally:
+                remote.FILES = old_files
+            self.assertEqual(metadata["event"]["event_name"], "UFC Remoto")
+            self.assertEqual(targets["intel_profiles.csv"].read_text(),
+                             (source_dir / "intel_profiles.csv").read_text())
+            self.assertEqual(targets["intel.db"].with_name(
+                "intel.db.backup").read_text(), "copia anterior")
+
     def test_reintenta_429_respetando_retry_info(self):
         class QuotaError(Exception):
             code = 429
@@ -381,7 +455,7 @@ class IntelTest(unittest.TestCase):
         at = AppTest.from_function(pagina_intel_vacia).run(timeout=20)
         self.assertFalse(at.exception)
         self.assertEqual(at.header[0].value, "Inteligencia")
-        self.assertIn("Todavia no hay", at.info[0].value)
+        self.assertTrue(any("Todavia no hay" in item.value for item in at.info))
 
 
 if __name__ == "__main__":

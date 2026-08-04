@@ -169,14 +169,14 @@ def ultimo_evento(db=None):
     cerrar = db is None
     db = db or conectar()
     fila = db.execute("""
-        SELECT event_name, event_date, MAX(checked_at) AS updated_at,
+        SELECT event_name, event_date, run_day, MAX(checked_at) AS updated_at,
                COUNT(*) AS fighters,
                SUM(status IN ('complete', 'collected')) AS completed,
                SUM(prompt_tokens) AS prompt_tokens,
                SUM(output_tokens) AS output_tokens
         FROM intel_checks
-        GROUP BY event_name, event_date
-        ORDER BY event_date DESC, updated_at DESC LIMIT 1
+        GROUP BY event_name, event_date, run_day
+        ORDER BY event_date DESC, run_day DESC, updated_at DESC LIMIT 1
     """).fetchone()
     if not fila:
         if cerrar:
@@ -184,9 +184,10 @@ def ultimo_evento(db=None):
         return None
     evento = dict(fila)
     checks = db.execute("""
-        SELECT * FROM intel_checks WHERE event_name=? AND event_date=?
+        SELECT * FROM intel_checks
+        WHERE event_name=? AND event_date=? AND run_day=?
         ORDER BY CASE WHEN score IS NULL THEN 1 ELSE 0 END, score ASC, fighter
-    """, (fila["event_name"], fila["event_date"])).fetchall()
+    """, (fila["event_name"], fila["event_date"], fila["run_day"])).fetchall()
     evento["checks"] = []
     for check in checks:
         item = dict(check)
@@ -200,3 +201,29 @@ def ultimo_evento(db=None):
     if cerrar:
         db.close()
     return evento
+
+
+def metadata(db=None):
+    """Resumen pequeno y estable para comparar copias locales/remotas."""
+    cerrar = db is None
+    db = db or conectar()
+    evento = db.execute("""
+        SELECT event_name, event_date, run_day, MAX(checked_at) AS updated_at,
+               COUNT(*) AS fighters,
+               SUM(status IN ('complete', 'collected')) AS completed,
+               SUM(evidence_count) AS evidence_count,
+               SUM(COALESCE(score, 0) <= -2) AS alerts
+        FROM intel_checks
+        GROUP BY event_name, event_date, run_day
+        ORDER BY event_date DESC, run_day DESC, updated_at DESC LIMIT 1
+    """).fetchone()
+    run = ultimo_run(db)
+    result = {
+        "schema_version": 1,
+        "generated_at": ahora_utc(),
+        "event": dict(evento) if evento else None,
+        "last_run": run,
+    }
+    if cerrar:
+        db.close()
+    return result

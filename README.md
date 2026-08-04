@@ -82,6 +82,24 @@ se calcula en `UFC_INTEL_TIMEZONE=America/Santiago`, aunque la VPS mantenga UTC.
 La evaluacion completa de Hermes Agent, redes, proveedores y costos esta en
 [`docs/FIGHTER_INTEL_VIABILITY.md`](docs/FIGHTER_INTEL_VIABILITY.md).
 
+### Sincronizar Inteligencia desde Streamlit
+
+La app local no abre SQLite a traves de la red. La pestana **Inteligencia** consulta por
+SSH una metadata pequena de la VPS y compara `evento + dia de revision + updated_at`
+contra `data/intel.db`. El boton **Sincronizar ahora** solo se habilita cuando la VPS
+tiene una revision mas nueva. La descarga incluye la base y los CSV de identidades,
+valida integridad/esquema y reemplaza los archivos de forma atomica; las copias
+anteriores quedan con sufijo `.backup`.
+
+```sh
+cp .streamlit/secrets.example.toml .streamlit/secrets.toml
+.venv/bin/streamlit run app.py
+```
+
+`secrets.toml` esta ignorado por Git. La pantalla tambien muestra la ultima revision
+local/remota y la proxima ventana programada. El panel se actualiza solo cada cinco
+minutos; **Comprobar de nuevo** fuerza una lectura inmediata sin descargar nada.
+
 ## Pipeline
 
 Correr en este orden, desde la raíz del repo. Total: un par de minutos. Van con `-m`
