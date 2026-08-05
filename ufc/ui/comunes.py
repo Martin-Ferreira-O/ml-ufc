@@ -47,16 +47,30 @@ COLUMNAS = {
     "fecha": st.column_config.DateColumn("Fecha", format="DD MMM YYYY"),
     "pelea": st.column_config.TextColumn("Pelea", pinned=True),
     "seguido": st.column_config.TextColumn(
-        "Lado seguido", help="La candidata si la hubo; si no, el lado con mayor ventaja "
-                             "estimada. Es seguimiento hipotético, no una apuesta real."),
+        "Lado seguido", help="La candidata si la hubo; si no, el lado donde el modelo le "
+                             "saca ventaja al precio tomado, y solo si supera el piso de "
+                             "arriba. Vacío = ningún lado lo pasó. Es seguimiento "
+                             "hipotético, no una apuesta real."),
     "p_modelo": st.column_config.ProgressColumn(
         "Modelo", format="percent", min_value=0, max_value=1,
-        help="Probabilidad que le da el modelo a ese lado, sin mirar la cuota."),
+        help="Probabilidad que le da a ese lado el modelo alimentado con la cuota, que "
+             "es la que decide el lado seguido. El modelo ciego está comprimido hacia "
+             "50% contra el mercado y por sí solo elegía al no favorito siempre."),
     "p_mercado": st.column_config.ProgressColumn(
         "Mercado", format="percent", min_value=0, max_value=1,
         help="Probabilidad implícita en la cuota, sin el margen de la casa."),
-    "cuota": st.column_config.NumberColumn("Cuota", format="%.2f",
-                                           help="La cuota congelada al registrar."),
+    "ventaja": st.column_config.NumberColumn(
+        "Ventaja", format="percent",
+        help="Puntos de probabilidad que el modelo le saca al precio tomado. Es lo que "
+             "tiene que superar el piso de arriba para que la fila siga un lado."),
+    "cuota": st.column_config.NumberColumn(
+        "Cuota", format="%.2f",
+        help="La mejor cuota congelada al registrar: la de Betano o la de la casa que "
+             "más pagaba, la que fuera más alta."),
+    "extra": st.column_config.NumberColumn(
+        "Extra vs Betano", format="percent",
+        help="Cuánto suma la mejor casa sobre Betano en ese mismo lado. 0% = Betano "
+             "pagaba igual o no había consenso multi-casa al registrar."),
     "confianza": st.column_config.TextColumn(
         "Coincidencia", help="Qué tanto coincide el modelo con el mercado. No es una "
                              "validación económica ni habilita apuestas."),
@@ -221,18 +235,23 @@ def resultado(a, b, r, cuotas):
 
 def historial(df):
     """El ledger con nombres de peleador en vez de "a"/"b". Una fila = un solo lado."""
-    es_a = df["lado"] == "a"
+    sin_lado = df["lado"] == ""
+    # sin lado seguido la fila igual muestra probabilidades: orientadas al favorito del
+    # modelo, que es lo unico que queda para leerla
+    es_a = (df["p_dec"] > 0.5).where(sin_lado, df["lado"] == "a")
     return pd.DataFrame({
         "pelea": df["a"] + " vs " + df["b"],
         "fecha": df["fecha_evento"],
-        "seguido": df["a"].where(es_a, df["b"]),
-        "p_modelo": df["p_a"].where(es_a, 1 - df["p_a"]),
+        "seguido": df["a"].where(es_a, df["b"]).where(~sin_lado),
+        "p_modelo": df["p_dec"].where(es_a, 1 - df["p_dec"]),
         "p_mercado": df["p_mercado"].where(es_a, 1 - df["p_mercado"]),
+        "ventaja": df["ventaja"].where(es_a, -df["ventaja"]),
         "cuota": df["cuota_lado"],
+        "extra": df["extra"],
         "confianza": df["confianza"].map(BADGE),
         "candidata": df["apuesta"].fillna("") != "",
         "ganador": df["a"].where(df["gano"] == "a", df["b"]).where(df["gano"].notna()),
-        "acerto": df["gano"] == df["lado"],
+        "acerto": (df["gano"] == df["lado"]).where(~sin_lado),
         "clv": df["clv"],
         "retorno": df["retorno"],
     })

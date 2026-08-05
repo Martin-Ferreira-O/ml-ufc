@@ -16,31 +16,50 @@ import pandas as pd
 
 from ufc import nombres, rutas
 from ufc.datos import betano
+from ufc.modelo import predict
 
 LEDGER = rutas.DATOS / "ledger.csv"
+# `p_con_odds` va al final a proposito: la migracion de abajo rellena las columnas que
+# falten agregando vacias al final, asi que una columna nueva en el medio corre todo.
 COLS = ["visto", "evento", "fecha_evento", "a", "b", "p_a", "p_mercado",
-        "cuota_a", "cuota_b", "confianza", "apuesta", "ev"]
+        "cuota_a", "cuota_b", "confianza", "apuesta", "ev", "mejor_a", "mejor_b",
+        "p_con_odds"]
+# Piso para seguir un lado, en PUNTOS DE PROBABILIDAD contra el precio que se toma.
+# Antes el piso era sobre el EV, y eso pide una ventaja de umbral*p_mercado: 0.9 puntos
+# en una cuota de 5.80 contra 3.9 en una de 1.30. El mismo piso era cuatro veces mas
+# facil de pasar del lado del underdog. En puntos los dos lados piden lo mismo.
+# ponytail: constante y no un slider; si alguna vez hay que calibrarlo, se calibra aca.
+UMBRAL_VENTAJA = 0.05
 
 
-def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None):
+def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None, mejor=None):
     """Congela la prediccion la primera vez que la pelea aparece con cuota."""
     LEDGER.parent.mkdir(parents=True, exist_ok=True)
-    vistas = set()
+    filas = []
     if LEDGER.exists():
         with LEDGER.open() as f:
-            vistas = {(fila[1], fila[3], fila[4]) for fila in csv.reader(f)}
+            filas = [fila for fila in csv.reader(f) if fila]
+    # el ledger viejo no tenia las columnas de mejor cuota: se rellenan vacias una vez,
+    # si no las filas nuevas salen mas anchas que el header y el csv queda ilegible
+    if filas and len(filas[0]) < len(COLS):
+        with LEDGER.open("w", newline="") as f:
+            csv.writer(f).writerows(
+                [COLS] + [fila + [""] * (len(COLS) - len(fila)) for fila in filas[1:]])
+    vistas = {(fila[1], fila[3], fila[4]) for fila in filas}
     if (evento, a, b) in vistas:
         return
     lado = r.get("apuesta")
     ev = r[f"ev_{lado}"] if lado else max(r["ev_a"], r["ev_b"])
     with LEDGER.open("a", newline="") as f:
         w = csv.writer(f)
-        if not vistas:
+        if not filas:
             w.writerow(COLS)
         w.writerow([(hoy or pd.Timestamp.today()).date().isoformat(), evento,
                     fecha_evento, a, b, round(r["p_a"], 4),
                     round(r["p_a_mercado"], 4), cuotas[0], cuotas[1],
-                    r["confianza"], lado or "", round(ev, 4)])
+                    r["confianza"], lado or "", round(ev, 4),
+                    *(mejor or ("", "")),
+                    round(r["p_a_con_odds"], 4) if "p_a_con_odds" in r else ""])
 
 
 def _resultados():
@@ -81,8 +100,13 @@ def _cierres(fecha_por_par):
     return tabla
 
 
-def evaluar():
-    """-> (df, resumen). Cada prediccion congelada con resultado, cierre y CLV."""
+def evaluar(umbral=UMBRAL_VENTAJA):
+    """-> (df, resumen). Cada prediccion congelada con resultado, cierre y CLV.
+
+    `umbral` es el piso de ventaja (en puntos de probabilidad sobre el precio tomado)
+    para seguir un lado: se recalcula entero en cada llamada, asi la pestania puede
+    moverlo y ver como cambia el historial completo.
+    """
     if not LEDGER.exists():
         return pd.DataFrame(), {}
     df = pd.read_csv(LEDGER, parse_dates=["fecha_evento"])
@@ -110,16 +134,45 @@ def evaluar():
                   for g, a in zip(ganador, df["a"])]
     df["cierre_a"], df["cierre_b"] = cierre_a, cierre_b
 
-    # el lado "apostado": la candidata si la hubo, si no el de mayor EV (hipotetico)
+    # El EV se mide contra la mejor cuota disponible, no contra la de Betano: apostar al
+    # precio mas alto del mercado es la unica ventaja que no depende de que el modelo
+    # acierte. Las filas viejas no tienen la mejor cuota guardada y caen en la de Betano.
+    for c in ("mejor_a", "mejor_b"):
+        df[c] = pd.to_numeric(df[c], errors="coerce") if c in df else np.nan
+    df["tope_a"] = df[["cuota_a", "mejor_a"]].max(axis=1)
+    df["tope_b"] = df[["cuota_b", "mejor_b"]].max(axis=1)
+
+    # La probabilidad que decide el lado es la del modelo alimentado con la cuota. El
+    # modelo ciego esta comprimido hacia 0.5 contra el mercado, y como EV = cuota*p - 1
+    # ~= p_modelo/p_mercado - 1, esa compresion sola alcanza para que el underdog gane
+    # la comparacion en TODAS las peleas: no era una senal, era el sesgo del modelo.
+    # Las filas viejas no la tienen guardada y caen en el modelo ciego.
+    p = (pd.to_numeric(df["p_con_odds"], errors="coerce").fillna(df["p_a"])
+         if "p_con_odds" in df else df["p_a"])
+    ev_a = df["tope_a"] * p - 1
+    ev_b = df["tope_b"] * (1 - p) - 1
+
+    # La ventaja se mide contra el precio que se toma (el tope, no Betano): asi el
+    # line-shopping cuenta como lo que es, mejor precio = mas ventaja sobre el mercado.
+    ventaja = p - predict._desvig(1 / df["tope_a"], 1 / df["tope_b"])
+    # el lado "apostado": la candidata si la hubo, si no el lado donde el modelo le gana
+    # al precio, siempre que pase el piso y el EV a ese precio sea positivo. El segundo
+    # filtro no es redundante: una ventaja chica no alcanza para cubrir el vig.
+    df["p_dec"], df["ventaja"] = p, ventaja
+    ev_lado = np.where(ventaja > 0, ev_a, ev_b)
     lado = np.where(df["apuesta"].fillna("") != "", df["apuesta"],
-                    np.where(df["cuota_a"] * df["p_a"] > df["cuota_b"] * (1 - df["p_a"]),
-                             "a", "b"))
+                    np.where((np.abs(ventaja) < umbral) | (ev_lado <= 0), "",
+                             np.where(ventaja > 0, "a", "b")))
     df["lado"] = lado
+    sin_lado = lado == ""
     es_a = lado == "a"
-    df["cuota_lado"] = np.where(es_a, df["cuota_a"], df["cuota_b"])
+    df["cuota_lado"] = np.where(sin_lado, np.nan,
+                                np.where(es_a, df["tope_a"], df["tope_b"]))
+    # cuanto suma el line-shopping sobre Betano en ese mismo lado
+    df["extra"] = df["cuota_lado"] / np.where(es_a, df["cuota_a"], df["cuota_b"]) - 1
     df["clv"] = df["cuota_lado"] / np.where(es_a, df["cierre_a"], df["cierre_b"]) - 1
     con_res = df["gano"].notna()
-    df["retorno"] = np.where(~con_res, np.nan,
+    df["retorno"] = np.where(~con_res | sin_lado, np.nan,
                              np.where(df["gano"] == lado, df["cuota_lado"] - 1, -1.0))
 
     hecho = df[con_res]
@@ -134,5 +187,7 @@ def evaluar():
         "candidatas": int((df["apuesta"].fillna("") != "").sum()),
         "roi_candidatas": candidatas["retorno"].mean() if len(candidatas) else np.nan,
         "clv_medio": df["clv"].mean(),
+        "seguidos": int((~sin_lado).sum()),
+        "extra_medio": df["extra"].mean(),
     }
     return df, resumen

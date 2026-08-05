@@ -213,11 +213,14 @@ def render(modelo, estado, pagina_predictores=None):
         # Predecir y congelar va antes de filtrar: el ledger tiene que registrar toda la
         # cartelera, no solo lo que quedó a la vista.
         r = cartelera.predecir(pelea, modelo, estado, cuotas, evento["fecha"])
+        info = oddsapi.buscar(consenso, pelea["a"], pelea["b"]) if consenso else None
         if cuotas and "error" not in r:
             # la primera cuota vista queda congelada en el ledger: es la "apuesta al
-            # abrir el mercado" que el Historial evalua despues
+            # abrir el mercado" que el Historial evalua despues. La mejor cuota del
+            # mercado va con ella: sin eso el Seguimiento solo puede medir Betano.
             ledger.registrar(evento["evento"], evento["fecha"],
-                             pelea["a"], pelea["b"], r, cuotas)
+                             pelea["a"], pelea["b"], r, cuotas,
+                             mejor=info["mejor"] if info else None)
         if not _visible(pelea, busqueda, solo_cuota, cuotas):
             continue
         mostradas += 1
@@ -246,7 +249,6 @@ def render(modelo, estado, pagina_predictores=None):
                     st.badge("Sin cuota publicada", color="gray", icon=":material/sell:")
             st.subheader(f"{pelea['a']} vs {pelea['b']}")
 
-            info = oddsapi.buscar(consenso, pelea["a"], pelea["b"]) if consenso else None
             if info:
                 ma, mb = info["mejor"]
                 st.caption(f"Consenso de {info['casas']} casas — {pelea['a']} "

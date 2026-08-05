@@ -7,8 +7,13 @@ from ufc.registro import ledger
 from ufc.ui import comunes
 
 
+_UMBRAL = "hist_umbral"
+
+
 def render():
-    df_ledger, resumen = ledger.evaluar()
+    # el slider va antes de evaluar: mueve el lado seguido de todas las filas, no filtra
+    umbral = st.session_state.get(_UMBRAL, ledger.UMBRAL_VENTAJA * 100) / 100
+    df_ledger, resumen = ledger.evaluar(umbral)
     chips = []
     if not df_ledger.empty:
         chips.append((f"{resumen['predicciones']} congeladas", "blue",
@@ -45,16 +50,32 @@ def render():
         if pd.notna(resumen["roi_candidatas"]):
             st.metric("ROI regla retirada", f"{resumen['roi_candidatas']:+.1%}",
                       border=True, help="Resultado histórico de la regla anterior.")
+        if pd.notna(resumen["extra_medio"]):
+            st.metric("Extra por line-shopping", f"{resumen['extra_medio']:+.1%}",
+                      border=True,
+                      help="Cuánto paga de más la mejor casa sobre Betano, promediando "
+                           "los lados seguidos.")
         if pd.notna(resumen["clv_medio"]):
             st.metric("Mejora frente al cierre", f"{resumen['clv_medio']:+.1%}", border=True,
                       help="Cuota registrada vs cuota de cierre del lado seguido. "
                            "Positivo = le ganaste al cierre.")
 
+    st.slider("Piso de ventaja para seguir un lado", 0, 20,
+              int(ledger.UMBRAL_VENTAJA * 100), key=_UMBRAL, format="%d pts",
+              help="Puntos de probabilidad que el modelo le tiene que sacar al precio "
+                   "tomado. Debajo de este piso ninguna fila sigue un lado. Va en puntos "
+                   "y no en EV porque el mismo piso de EV era cuatro veces más fácil de "
+                   "pasar del lado del no favorito. Mové y mirá cómo cambian el ROI y el "
+                   "CLV de arriba.")
+
     tabla = comunes.historial(df_ledger)
     hechas = df_ledger["gano"].notna().to_numpy()
-    st.caption("Cada fila muestra **un solo lado** de la pelea: la marca histórica si "
-               "existió; si no, el lado con mayor EV puntual para seguimiento. Ninguna "
-               "fila nueva es una recomendación de apuesta.")
+    st.caption(f"Cada fila muestra **un solo lado** de la pelea: la marca histórica si "
+               f"existió; si no, el lado donde el modelo le saca ventaja a la **mejor "
+               f"cuota del mercado**, y solo si esa ventaja supera {umbral:.0%} y el EV "
+               f"a ese precio da positivo ({resumen['seguidos']} de "
+               f"{resumen['predicciones']} lo pasan). El resto queda sin lado seguido. "
+               f"Ninguna fila es una recomendación de apuesta.")
 
     # Las dos tablas en pestañas: son la misma tabla en dos estados y antes venían una
     # abajo de la otra, así que la de resueltas quedaba fuera de pantalla.

@@ -319,8 +319,11 @@ def check_archivo():
 
 def check_ledger():
     """Congelado con dedup, cruce con el resultado real y CLV contra el cierre."""
+    import csv
     import pathlib
     import tempfile
+
+    import pandas as pd
 
     from ufc.registro import ledger
 
@@ -350,6 +353,56 @@ def check_ledger():
             assert resumen["con_resultado"] == 1 and resumen["candidatas"] == 1, resumen
             retorno = df["retorno"].iloc[0]
             assert retorno == (1.00 if esperado == "a" else -1.0), retorno
+
+            # sin candidata el lado sale del EV contra la mejor cuota del mercado, y
+            # solo si pasa el piso. Misma pelea con y sin line-shopping: sin el, ningun
+            # lado llega al piso; con el, la mejor casa lo empuja arriba.
+            chico = {"p_a": 0.52, "p_a_mercado": 0.50, "confianza": "media",
+                     "apuesta": None, "ev_a": -0.01, "ev_b": -0.09}
+            ledger.registrar("UFC Test", "2026-09-01", "Flojo Uno", "Flojo Dos",
+                             chico, (1.90, 1.90))
+            ledger.registrar("UFC Test", "2026-09-01", "Shop Uno", "Shop Dos",
+                             chico, (1.90, 1.90), mejor=(2.20, 1.90))
+            df, resumen = ledger.evaluar()
+            flojo = df[df["a"] == "Flojo Uno"].iloc[0]
+            shop = df[df["a"] == "Shop Uno"].iloc[0]
+            assert flojo["lado"] == "" and pd.isna(flojo["cuota_lado"]), flojo
+            assert shop["lado"] == "a" and shop["cuota_lado"] == 2.20, shop
+            assert abs(shop["extra"] - (2.20 / 1.90 - 1)) < 1e-9, shop["extra"]
+            assert resumen["seguidos"] == 2, resumen   # la candidata y la de shopping
+            # el piso lo mueve la pestania: con 20% ni la de shopping (14%) pasa
+            assert ledger.evaluar(0.20)[1]["seguidos"] == 1, "umbral alto"
+            # en cero la Flojo sigue sin lado: su EV es negativo con las dos cuotas
+            assert ledger.evaluar(0.0)[1]["seguidos"] == 2, "umbral en cero"
+
+            # el sesgo que motivo el cambio de regla: el modelo ciego esta comprimido
+            # hacia 0.5 (45.9% a un underdog que la casa pone en 20.8%), y como
+            # EV = cuota*p - 1 ~= p_modelo/p_mercado - 1, eso da +86% de EV del lado del
+            # underdog en cualquier pelea. Con la probabilidad alimentada con la cuota
+            # no hay ventaja y la fila no sigue ningun lado.
+            apretado = {"p_a": 0.4594, "p_a_mercado": 0.2076, "p_a_con_odds": 0.1993,
+                        "confianza": "baja", "apuesta": None,
+                        "ev_a": 0.86, "ev_b": -0.33}
+            ledger.registrar("UFC Test", "2026-09-01", "Comprimido Uno",
+                             "Comprimido Dos", apretado, (4.05, 1.23))
+            df, _ = ledger.evaluar()
+            fila = df[df["a"] == "Comprimido Uno"].iloc[0]
+            assert abs(fila["p_dec"] - 0.1993) < 1e-9, fila["p_dec"]
+            assert fila["lado"] == "", fila            # EV +86% y aun asi no sigue lado
+
+        # un ledger de la version anterior (sin las columnas de mejor cuota) se migra
+        # solo al registrar: si no, las filas nuevas salen mas anchas que el header
+        with tempfile.TemporaryDirectory() as d:
+            ledger.LEDGER = pathlib.Path(d) / "ledger.csv"
+            ledger.LEDGER.write_text(
+                ",".join(ledger.COLS[:-2]) +
+                "\nhoy,UFC Viejo,2026-01-01,X,Y,0.52,0.5,1.9,1.9,media,,-0.01\n")
+            ledger.registrar("UFC Test", "2026-09-01", "Nuevo Uno", "Nuevo Dos",
+                             chico, (1.90, 1.90), mejor=(2.20, 1.90))
+            filas = list(csv.reader(ledger.LEDGER.open()))
+            assert all(len(f) == len(ledger.COLS) for f in filas), filas
+            df, _ = ledger.evaluar()
+            assert len(df) == 2 and df["lado"].tolist() == ["", "a"], df
     finally:
         ledger.LEDGER, betano.HIST = led, hist
 
