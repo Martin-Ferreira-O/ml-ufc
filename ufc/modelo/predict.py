@@ -176,7 +176,13 @@ def predict(nombre_a, nombre_b, modelo=None, estado=None, event_date=None, cuota
     diffs = [filas[0][k] - filas[1][k] for k in base["cols"]]
     X = pd.DataFrame([diffs, [-d for d in diffs]], columns=base["cols"])
     p_a = _prob(base, X)
-    out = {"p_a": p_a, "p_b": 1 - p_a, "factores": _factores(base, X)}
+    # `calibrador` es None cuando ninguno le gano al modelo crudo en train (ver
+    # train._calibrar). En ese caso p_a_cal == p_a y no hay nada que aplicar: el modelo
+    # ya esta calibrado en agregado. La clave existe igual para que la app no tenga que
+    # preguntar si hoy hay calibrador o no.
+    cal = modelo.get("calibrador")
+    out = {"p_a": p_a, "p_b": 1 - p_a, "factores": _factores(base, X),
+           "p_a_cal": cal(p_a) if cal else p_a}
     if mezclados:
         out["aviso"] = (
             "Hubo más de un peleador llamado " + " y ".join(mezclados) + " en UFC, y "

@@ -5,18 +5,8 @@ import zoneinfo
 
 import streamlit as st
 
-from ufc.intel import identities, remote, store
+from ufc.intel import remote, store
 from ufc.ui import comunes
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _ultimo():
-    return store.ultimo_evento()
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _profiles(fighters):
-    return {fighter: identities.profiles_for(fighter) for fighter in fighters}
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -123,8 +113,8 @@ def _cuerpo_sincronizacion(config, start, end):
         try:
             with st.spinner("Descargando y validando la copia de la VPS…"):
                 remote.sincronizar(config)
-            _ultimo.clear()
-            _profiles.clear()
+            comunes.intel_evento.clear()
+            comunes.intel_perfiles.clear()
             _metadata_local.clear()
             _estado_vps.clear()
             st.session_state["intel_sync_message"] = (
@@ -134,89 +124,10 @@ def _cuerpo_sincronizacion(config, start, end):
             st.error(str(exc), icon=":material/error:")
 
 
-def _color(score):
-    if score is None:
-        return "gray"
-    return "red" if score <= -2 else "green" if score >= 2 else "gray"
-
-
-def _etiqueta(score):
-    if score is None:
-        return "Sin analizar"
-    if score <= -2:
-        return f"{score:+d} · posible impacto negativo"
-    if score >= 2:
-        return f"{score:+d} · posible impacto positivo"
-    return f"{score:+d} · sin impacto material"
-
-
-def _tarjeta(check, profiles):
-    report = check["report"]
-    score = check["score"]
-    color = _color(score)
-    with st.container(border=True):
-        with st.container(horizontal=True, horizontal_alignment="distribute",
-                          vertical_alignment="center"):
-            st.subheader(f"{check['fighter']} vs {check['opponent']}")
-            st.badge(_etiqueta(score), color=color,
-                     icon=":material/report:" if color == "red"
-                     else ":material/fact_check:")
-        st.write(report.get("resumen") or "Sin resumen.")
-        for warning in report.get("advertencias", []):
-            st.warning(warning, icon=":material/warning:")
-
-        with st.container(horizontal=True, vertical_alignment="center"):
-            if check["confidence"]:
-                st.badge(f"Confianza {check['confidence']}", color="blue",
-                         icon=":material/verified:")
-            st.badge(f"{check['evidence_count']} evidencias", color="gray",
-                     icon=":material/inventory_2:")
-            social = [x for x in profiles.get(check["fighter"], [])
-                      if x.get("confidence") == "official"]
-            for perfil in social:
-                st.badge(perfil["platform"].capitalize(), color="violet",
-                         icon=":material/link:")
-        if social:
-            st.caption("Perfiles identificados: " + " · ".join(
-                f"[{x['platform'].capitalize()}]({x['url']})" for x in social))
-        elif any(x.get("confidence") == "candidate"
-                 for x in profiles.get(check["fighter"], [])):
-            st.caption("Wikidata propuso perfiles, pero quedan pendientes de "
-                       "validación antes de recolectarlos.")
-
-        evidencias_por_ref = {f"E{x['position']}": x for x in check["evidencias"]}
-        for hallazgo in report.get("hallazgos", []):
-            refs = [r for r in hallazgo.get("evidencias", [])
-                    if r in evidencias_por_ref]
-            # Cada hallazgo en su propia caja: antes eran tres parrafos seguidos y no se
-            # veia donde terminaba uno y empezaba el siguiente.
-            with st.container(border=True):
-                with st.container(horizontal=True, horizontal_alignment="distribute",
-                                  vertical_alignment="center"):
-                    st.markdown(f"**{hallazgo['titulo']}**")
-                    st.badge(f"impacto {hallazgo['impacto']:+d}",
-                             color=_color(hallazgo["impacto"]),
-                             icon=":material/adjust:")
-                st.caption(f"Certeza: {hallazgo['certeza']}")
-                st.write(hallazgo["explicacion"])
-                if refs:
-                    st.caption("Fuentes: " + " · ".join(
-                        f"[{r} — {evidencias_por_ref[r]['source']}]"
-                        f"({evidencias_por_ref[r]['url']})" for r in refs))
-        if check["evidencias"]:
-            with st.expander(f"Ver las {len(check['evidencias'])} evidencias",
-                             icon=":material/library_books:"):
-                for e in check["evidencias"]:
-                    st.markdown(f"**E{e['position']} · [{e['title']}]({e['url']})**")
-                    st.caption(f"{e['source']} · {e['published_at'] or 'fecha desconocida'}")
-                    if e["snippet"]:
-                        st.write(e["snippet"])
-
-
 def render():
     if message := st.session_state.pop("intel_sync_message", None):
         st.success(message, icon=":material/check_circle:")
-    evento = _ultimo()
+    evento = comunes.intel_evento()
     checks = evento["checks"] if evento else []
     alertas = sum((x["score"] or 0) <= -2 for x in checks)
 
@@ -241,7 +152,7 @@ def render():
 
     total = len(checks)
     evidencias = sum(x["evidence_count"] for x in checks)
-    profiles = _profiles(tuple(x["fighter"] for x in checks))
+    profiles = comunes.intel_perfiles(tuple(x["fighter"] for x in checks))
     covered = sum(any(p.get("confidence") == "official"
                       for p in profiles[x["fighter"]]) for x in checks)
     with st.container(horizontal=True):
@@ -265,4 +176,4 @@ def render():
                                   "Ningún peleador tiene alerta en esta revisión.")
     visibles = [c for c in checks if not solo_alertas or (c["score"] or 0) <= -2]
     for check in visibles:
-        _tarjeta(check, profiles)
+        comunes.intel_tarjeta(check, profiles[check["fighter"]])

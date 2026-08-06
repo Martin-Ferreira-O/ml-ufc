@@ -810,11 +810,109 @@ def check_app():
     assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
 
 
+def check_calibra():
+    """Los calibradores corrigen compresion, respetan simetria y no miran su propio fold."""
+    import numpy as np
+    from sklearn.metrics import brier_score_loss
+
+    from ufc.modelo import calibra
+
+    rng = np.random.default_rng(0)
+    p_real = rng.beta(2, 2, 6000)
+    y = (rng.random(6000) < p_real).astype(float)
+    p = 0.5 + (p_real - 0.5) * 0.5          # comprimido hacia 0.5, como el modelo ciego
+
+    base = brier_score_loss(y, p)
+    for nombre in ("platt", "isotonica"):
+        g = calibra.CALIBRADORES[nombre](p, y)
+        assert brier_score_loss(y, g(p)) < base, f"{nombre} no corrige la compresion"
+        # antisimetria: sin esto, invertir el orden de los peleadores cambia la apuesta
+        assert np.abs(g(p) + g(1 - p) - 1).max() < 1e-9, f"{nombre} rompe la simetria"
+        # escalar entra, escalar sale: `predict` la llama con un float
+        assert isinstance(g(0.42), float), f"{nombre} no acepta escalar"
+    assert np.allclose(calibra.CALIBRADORES["identidad"](p, y)(p), p)
+
+    # ECE: perfectamente calibrado da ~0, y el comprimido bastante mas
+    assert calibra.ece(p_real, y) < 0.02, calibra.ece(p_real, y)
+    assert calibra.ece(p, y) > 0.05, calibra.ece(p, y)
+
+    # prequencial: cada fold se calibra con los ANTERIORES. Si el fold 0 saliera calibrado
+    # habria mirado su propio resultado; si el ultimo cambiara al borrar el futuro,
+    # habria leakage.
+    folds = np.repeat(np.arange(6), 1000)
+    cal = calibra.prequencial(p, y, folds)
+    assert np.allclose(cal["platt"][folds == 0], np.clip(p[folds == 0], 1e-6, 1 - 1e-6)), \
+        "el primer fold se calibro con algo"
+    corte = folds < 5
+    parcial = calibra.prequencial(p[corte], y[corte], folds[corte])
+    assert np.allclose(parcial["platt"], cal["platt"][corte]), \
+        "leakage: borrar el futuro cambio la calibracion del pasado"
+
+
+def check_backtest():
+    """Grilla, curva y segmentos sobre un caso cerrado a mano."""
+    import numpy as np
+    import pandas as pd
+
+    from ufc.modelo import backtest
+
+    # 1000 peleas, cuota 2.00 pareja, el lado A gana el 60%. Un modelo que dice 60%
+    # exacto tiene ROI +20% del lado A y -20% del lado B: 0.6*2-1 y 0.4*2-1.
+    # Los ganadores van intercalados y no en bloque: el bootstrap remuestrea eventos
+    # enteros, y con 60 eventos todos ganados seguidos de 40 todos perdidos el IC se
+    # abre tanto que el caso no probaria nada.
+    n = 1000
+    y = (np.arange(n) % 5 < 3).astype(float)
+    oof = pd.DataFrame({
+        "fold": 1, "date": pd.date_range("2020-01-01", periods=n, freq="D"),
+        "event": [f"E{i // 10}" for i in range(n)],
+        "fighter_a": "A", "fighter_b": "B",
+        "p": 0.6, "p_identidad": 0.6, "y": y, "p_mkt": 0.5, "q_a": 2.0, "q_b": 2.0,
+        "wc_lbs": 155.0, "mujer": 0.0, "cinco_r": 0.0, "reemplazo": 0.0,
+        "peso_no_dado": 0.0, "n_fights_min": 5.0, "age": 1.0,
+        "edad_a": 30.0, "edad_b": 29.0, "rank_a": np.nan, "rank_b": np.nan,
+        "title_bout": 0.0, "rematch": 0.0})
+
+    ap = backtest.apuestas(oof, "p_identidad")
+    assert len(ap) == 2 * n, len(ap)
+    lado_a = ap[ap["lado"] == "a"]
+    assert abs(lado_a["ev"].iloc[0] - 0.2) < 1e-9, lado_a["ev"].iloc[0]
+    assert abs(lado_a["pago"].mean() - 0.2) < 1e-9, lado_a["pago"].mean()
+    assert abs(lado_a["ventaja"].iloc[0] - 0.1) < 1e-9, "ventaja = p - p_mercado"
+
+    # el lado B tiene ventaja -0.1, asi que ni el umbral 0 lo deja pasar: seguir un lado
+    # donde el modelo le da MENOS que el mercado nunca puede ser una apuesta
+    g, ev0 = backtest.grilla(ap, [0.0, 0.05, 0.15])
+    assert g[0]["n"] == n and abs(g[0]["roi"] - 0.2) < 1e-9, g[0]
+    assert g[1]["n"] == n and abs(g[1]["roi"] - 0.2) < 1e-9, g[1]
+    assert g[2]["n"] == 0, g[2]                                # ninguno llega a 15 puntos
+    assert [f["n"] for f in g] == sorted((f["n"] for f in g), reverse=True), \
+        "subir el umbral no puede agregar apuestas"
+    assert g[1]["lo"] > 0 and g[1]["concluyente"], g[1]
+    assert abs(ev0["roi"] - 0.2) < 1e-9, ev0            # EV>0 deja solo el lado A
+
+    c = backtest.curva(ap, 0.05)
+    assert len(c) == n and abs(c["acumulado"].iloc[-1] - 0.2 * n) < 1e-9, c.tail(1)
+    assert (c["drawdown"] <= 1e-9).all(), "el drawdown nunca puede ser positivo"
+
+    seg = backtest.segmentos(oof, ap, 0.05, "p_identidad")
+    assert seg["división"][0]["nivel"] == "Lightweight", seg["división"]
+    assert abs(seg["división"][0]["roi"] - 0.2) < 1e-9, seg["división"][0]
+    assert seg["ranking"][0]["nivel"] == "alguno sin ranking", seg["ranking"]
+
+    # el ganador de la calibracion sale del IC, no del log loss suelto
+    assert backtest.ganador([{"calibrador": "platt", "log_loss": 0.1, "queda": False},
+                             {"calibrador": "isotonica", "log_loss": 0.9, "queda": True}]) \
+        == "p_isotonica"
+    assert backtest.ganador([{"calibrador": "platt", "log_loss": 0.1, "queda": False}]) \
+        == "p_identidad", "sin ganador tiene que caer en identidad"
+
+
 if __name__ == "__main__":
     for check in (check_fetch, check_betano, check_simetria, check_circunstancia,
                   check_confianza, check_apuesta, check_integridad_metodologica,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
-                  check_ledger, check_predictores, check_apuestas, check_cartelera,
-                  check_app):
+                  check_ledger, check_calibra, check_backtest, check_predictores,
+                  check_apuestas, check_cartelera, check_app):
         check()
         print(f"ok  {check.__name__}")

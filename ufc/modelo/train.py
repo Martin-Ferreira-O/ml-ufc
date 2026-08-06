@@ -42,7 +42,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from ufc import rutas
-from ufc.modelo import features, settlement
+from ufc.modelo import calibra, features, settlement
 
 FEATS = rutas.DATOS / "features.csv"
 MODEL = rutas.MODELO
@@ -92,7 +92,7 @@ def _archivo(path):
             "bytes": path.stat().st_size}
 
 
-def _manifest(df, partes, predicciones, calidad=None):
+def _manifest(df, partes, predicciones, calidad=None, calibracion=None):
     """Metadatos suficientes para saber con que datos/codigo se produjo el bundle."""
     y = objetivo(partes["test"])
     p = predicciones["test"]["blend"]
@@ -124,10 +124,14 @@ def _manifest(df, partes, predicciones, calidad=None):
         "dependencies": deps,
         "model": {"features": list(features.FEATURES), "hgb_params": PARAMS,
                   "linear_c": C_LINEAL, "random_seed": 0},
+        # log loss / Brier / ECE son las que deciden. `test_accuracy` queda por
+        # compatibilidad del schema, pero es secundaria: sube seleccionando favoritos.
         "metrics": {"split": "rolling development window; not an untouched holdout",
                     "test_fights": len(y), "test_log_loss": float(log_loss(y, p)),
                     "test_brier": float(brier_score_loss(y, p)),
+                    "test_ece": calibra.ece(p, y),
                     "test_accuracy": float(accuracy_score(y, p > 0.5)),
+                    "calibration": calibracion or [],
                     "coincidence_buckets": calidad or []},
         "validation_domain": {
             "historical_odds": "late/closing line without verified timestamp",
@@ -343,6 +347,43 @@ def probar(df, corte):
               f"   ({len(extra)} cols, cobertura {cob:.0%})")
 
 
+def _calibrar(p, y, folds, clusters):
+    """Elige calibrador con el mismo protocolo que todo lo demas: IC95% pareado sin cero.
+
+    -> (Calibrador reajustado con todo el historial o None, filas para el manifest).
+    None = ninguno le gano al crudo, no se serializa nada y `predict` sirve la
+    probabilidad tal cual. Es el resultado esperable de un modelo que ya esta calibrado
+    en agregado: forzar un calibrador ahi solo agrega varianza.
+
+    Ojo con lo que arregla y lo que no. Calibrar corrige el sesgo de la probabilidad
+    contra la REALIDAD; no corrige que el modelo este comprimido contra el MERCADO, que
+    es lo que fabrica EV en el underdog. Son dos cosas distintas y esta mide la primera.
+    """
+    cal = calibra.prequencial(p, y, folds)
+    fuera = folds > folds.min()   # el primer fold no tuvo historial: salio crudo en los 3
+    y_f, cl = y[fuera], clusters[fuera]
+    filas, mejor = [], None
+    print("\ncalibracion (prequencial, sin el primer fold):")
+    for nombre, pc in cal.items():
+        d = comparar(pc[fuera], cal["identidad"][fuera], y_f, clusters=cl)
+        fila = {"calibrador": nombre,
+                "log_loss": float(log_loss(y_f, pc[fuera])),
+                "brier": float(brier_score_loss(y_f, pc[fuera])),
+                "ece": calibra.ece(pc[fuera], y_f),
+                "delta": float(d[0]), "lo": float(d[1]), "hi": float(d[2]),
+                "queda": bool(d[2] < 0)}
+        filas.append(fila)
+        print(f"  {nombre:10s} log loss {fila['log_loss']:.4f}  Brier {fila['brier']:.4f}"
+              f"  ECE {fila['ece']:.4f}   {veredicto(*d)}")
+        if fila["queda"] and (mejor is None or fila["log_loss"] < mejor["log_loss"]):
+            mejor = fila
+    if mejor is None:
+        print("  ninguno le gana al crudo: no se serializa calibrador, p_a_cal == p_a.")
+        return None, filas
+    print(f"  entra {mejor['calibrador']}, reajustado con todo el historial.")
+    return calibra.CALIBRADORES[mejor["calibrador"]](p, y), filas
+
+
 def _cuotas_con_vig(u):
     """-> (cuota_a, cuota_b) decimales reales por pelea, alineadas a fighter_a/fighter_b.
 
@@ -459,13 +500,20 @@ def main():
         print(f"{m:9s} " + " ".join(
             f"{log_loss(objetivo(partes[k]), p[k][m]):7.4f}" for k in partes))
 
+    # Primero las que miden la PROBABILIDAD, que es lo que decide una apuesta: el EV es
+    # p*cuota - 1, asi que un p sesgado se traduce directo en EV inventado. Accuracy va
+    # abajo y marcada: sube seleccionando favoritos grandes, cosa que el mercado ya hace
+    # gratis, y no distingue "acerto por poco" de "acerto con margen".
     y = objetivo(partes["test"])
-    print(f"\ntest (blend)  Brier {brier_score_loss(y, p['test']['blend']):.4f} | "
-          f"accuracy {accuracy_score(y, p['test']['blend'] > 0.5):.4f}")
-    print(f"moneda        Brier {brier_score_loss(y, np.full(len(y), 0.5)):.4f} | "
-          f"accuracy 0.5000 | log loss {log_loss(y, np.full(len(y), 0.5)):.4f}")
-    print("mayor Elo     accuracy "
-          f"{accuracy_score(y, partes['test']['elo'].to_numpy()[0::2] > 0):.4f}")
+    moneda = np.full(len(y), 0.5)
+    print(f"\ntest (blend)  log loss {log_loss(y, p['test']['blend']):.4f} | "
+          f"Brier {brier_score_loss(y, p['test']['blend']):.4f} | "
+          f"ECE {calibra.ece(p['test']['blend'], y):.4f}")
+    print(f"moneda        log loss {log_loss(y, moneda):.4f} | "
+          f"Brier {brier_score_loss(y, moneda):.4f} | ECE {calibra.ece(moneda, y):.4f}")
+    print(f"\n[secundaria] accuracy blend {accuracy_score(y, p['test']['blend'] > 0.5):.4f}"
+          f" | mayor Elo {accuracy_score(y, partes['test']['elo'].to_numpy()[0::2] > 0):.4f}"
+          " | moneda 0.5000")
 
     # Confiabilidad por decil sobre AMBAS orientaciones. La prediccion desplegada es
     # simetrica, asi que el log loss no cambia, pero puntuar la tabla solo en el orden
@@ -481,9 +529,10 @@ def main():
     # --- decision: rolling-origin sobre 20 anios, no una sola ventana
     con_odds = features.FEATURES_ODDS
     acum = {m: [] for m in (*MODELOS, "con odds", "mercado")}
-    ys, meta = [], []
-    for tr, te in rolling_origin(df, corte_test):
-        meta.append(te.iloc[0::2][["date", "fighter_a", "fighter_b"]])
+    ys, meta, folds = [], [], []
+    for i, (tr, te) in enumerate(rolling_origin(df, corte_test)):
+        meta.append(te.iloc[0::2][["date", "event", "fighter_a", "fighter_b"]])
+        folds.append(np.full(len(te) // 2, i))
         ps = probas(entrenar(tr, cols), te, cols)
         for m in MODELOS:
             acum[m].append(ps[m])
@@ -496,7 +545,7 @@ def main():
         acum["mercado"].append(1 / (1 + np.exp(-te[features.MERCADO].to_numpy()[0::2])))
         ys.append(objetivo(te))
     acum = {m: np.concatenate(v) for m, v in acum.items()}
-    ys = np.concatenate(ys)
+    ys, folds = np.concatenate(ys), np.concatenate(folds)
 
     print(f"\nrolling-origin: 20 folds de 1 anio, {len(ys)} peleas")
     for m in MODELOS:
@@ -516,6 +565,9 @@ def main():
     # la comparacion que decide si el modelo aporta algo que el mercado no tenga ya
     print("  con odds vs mercado : "
           f"{_veredicto(acum['con odds'][hay], acum['mercado'][hay], ys[hay])}")
+
+    clusters = pd.concat(meta, ignore_index=True)["event"].to_numpy()
+    calibrador, cal = _calibrar(acum["blend"], ys, folds, clusters)
 
     # --- de donde salen las etiquetas de confianza de la app
     calidad = calidad_por_tramo(acum["blend"], acum["mercado"], ys)
@@ -545,7 +597,10 @@ def main():
         p_ida = lineal.predict_proba(df[c].head(2))[:, 1]
         assert abs(p_ida[0] + p_ida[1] - 1) < 1e-9, f"{nombre}: logistica no antisimetrica"
         bundle[nombre] = {"hgb": hgb, "lineal": lineal, "cols": list(c)}
-    bundle["manifest"] = _manifest(df, partes, p, calidad)
+    # None cuando ningun calibrador le gano al crudo: `predict` sirve p_a sin tocar.
+    # Serializar una identidad seria maquinaria para un no-op.
+    bundle["calibrador"] = calibrador
+    bundle["manifest"] = _manifest(df, partes, p, calidad, cal)
     _atomic_bytes(MODEL, pickle.dumps(bundle))
     print(f"\n{MODEL} y {STATE} ({len(estado)} peleadores) guardados")
 

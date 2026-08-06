@@ -15,6 +15,7 @@ import requests
 import streamlit as st
 
 from ufc.datos import betano, cartelera, oddsapi
+from ufc.intel import identities, store
 from ufc.modelo import predict
 from ufc.registro import predictores
 
@@ -85,6 +86,45 @@ COLUMNAS = {
     "retorno": st.column_config.NumberColumn(
         "Retorno", format="%+.2f u", help="Flat-bet de 1 unidad en ese lado."),
 }
+# Backtest. Una sola tabla de configs para las cuatro vistas: comparten casi todas las
+# columnas y tener cuatro dicts casi iguales es como se desincronizan las ayudas.
+COLUMNAS_BT = {
+    "umbral": st.column_config.NumberColumn("Umbral", format="percent"),
+    "nivel": st.column_config.TextColumn("Segmento", pinned=True),
+    "calibrador": st.column_config.TextColumn("Calibrador", pinned=True),
+    "peleas": st.column_config.NumberColumn("Peleas"),
+    "n": st.column_config.NumberColumn("Apuestas", help="Lados que pasan el umbral."),
+    "roi": st.column_config.NumberColumn(
+        "ROI", format="percent", help="Beneficio sobre lo apostado, stake flat de 1 unidad."),
+    "yield": st.column_config.NumberColumn(
+        "Yield", format="percent",
+        help="Beneficio por apuesta. Con stake flat es el mismo número que el ROI por "
+             "definición; se separan solo si el stake varía."),
+    "neto": st.column_config.NumberColumn("Neto", format="%+.1f u"),
+    "acierto": st.column_config.NumberColumn(
+        "Acierto", format="percent",
+        help="Secundaria: sube seleccionando favoritos grandes, que es lo que el mercado "
+             "ya hace gratis. No mide ventaja."),
+    "accuracy": st.column_config.NumberColumn(
+        "Acierto", format="percent", help="Secundaria. No mide ventaja."),
+    "ev_medio": st.column_config.NumberColumn(
+        "EV prometido", format="percent",
+        help="Lo que el modelo creía que ganaba por apuesta. Comparalo con el ROI."),
+    "cuota_media": st.column_config.NumberColumn("Cuota media", format="%.2f"),
+    "log_loss": st.column_config.NumberColumn("Log loss", format="%.4f"),
+    "brier": st.column_config.NumberColumn("Brier", format="%.4f"),
+    "ece": st.column_config.NumberColumn(
+        "ECE", format="%.4f", help="Expected Calibration Error: |predicho - real| por "
+                                   "bin, pesado. 0 = perfectamente calibrado."),
+    "lo": st.column_config.NumberColumn("IC95% ↓", format="percent"),
+    "hi": st.column_config.NumberColumn("IC95% ↑", format="percent"),
+    "veredicto": st.column_config.TextColumn("Veredicto"),
+    "queda": st.column_config.CheckboxColumn("Pasa", disabled=True),
+    "concluyente": st.column_config.CheckboxColumn(
+        "Concluyente", disabled=True,
+        help="El IC95% no cruza cero y hay muestra suficiente."),
+}
+
 # La comparativa: las columnas fijas. Las de cada predictor se agregan al vuelo, porque
 # dependen de quien haya subido picks para ese evento.
 COLUMNAS_COMP = {
@@ -129,6 +169,17 @@ def cuotas_betano():
 @st.cache_data(ttl=1800, show_spinner="Buscando el consenso multi-casa…")
 def consenso():
     return oddsapi.cuotas()
+
+
+# Inteligencia y Cartelera leen el mismo informe: cacheado aca, es una sola consulta.
+@st.cache_data(ttl=60, show_spinner=False)
+def intel_evento():
+    return store.ultimo_evento()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def intel_perfiles(peleadores):
+    return {peleador: identities.profiles_for(peleador) for peleador in peleadores}
 
 
 
@@ -255,6 +306,118 @@ def historial(df):
         "clv": df["clv"],
         "retorno": df["retorno"],
     })
+
+
+def picks_pelea(fila):
+    """El voto humano de una pelea: seleccion, apoyo y quien eligio que.
+
+    `fila` es una fila de `predictores.ranking()`. La dibujan Predictores y Cartelera.
+    """
+    if not fila.seleccion:
+        st.caption("No hay una mayoría humana para esta pelea.")
+        return
+    st.markdown(f"**Selección humana: {fila.seleccion}**")
+    st.progress(float(fila.apoyo),
+                text=f"apoyo {fila.apoyo:.0%} · {fila.votos} de "
+                     f"{fila.predictores} predictores")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.badge("Modelo coincide" if fila.modelo_confirma else "Modelo no coincide",
+                 color="blue" if fila.modelo_confirma else "gray",
+                 icon=":material/psychology:")
+        st.badge("Mercado coincide" if fila.mercado_confirma else "Mercado no coincide",
+                 color="orange" if fila.mercado_confirma else "gray",
+                 icon=":material/storefront:")
+        if pd.notna(fila.cuota):
+            st.badge(f"Cuota {fila.cuota:.2f}", color="violet", icon=":material/sell:")
+    for pick in fila.detalle:
+        # La precision va al lado de la pick: sin eso, cuatro nombres pesan igual y el
+        # que acierta el 62% se lee como el que acierta el 40%.
+        historial = (f"{pick['acierto']:.0%} · {pick['total']} resultados"
+                     if pick["acierto"] is not None and pick["total"]
+                     else "sin historial")
+        st.caption(f"**{pick['predictor']}** → {pick['eligio']} · {historial}")
+
+
+def intel_color(score):
+    if score is None:
+        return "gray"
+    return "red" if score <= -2 else "green" if score >= 2 else "gray"
+
+
+def intel_etiqueta(score):
+    if score is None:
+        return "Sin analizar"
+    if score <= -2:
+        return f"{score:+d} · posible impacto negativo"
+    if score >= 2:
+        return f"{score:+d} · posible impacto positivo"
+    return f"{score:+d} · sin impacto material"
+
+
+def intel_tarjeta(check, perfiles, titulo=None, evidencias=True):
+    """El informe del bot para un peleador. Igual en Inteligencia y en Cartelera.
+
+    `evidencias=False` omite el desplegable de fuentes: Streamlit no anida expanders y
+    en Cartelera la tarjeta ya va dentro de uno.
+    """
+    report = check["report"]
+    score = check["score"]
+    color = intel_color(score)
+    with st.container(border=True):
+        with st.container(horizontal=True, horizontal_alignment="distribute",
+                          vertical_alignment="center"):
+            st.subheader(titulo or f"{check['fighter']} vs {check['opponent']}")
+            st.badge(intel_etiqueta(score), color=color,
+                     icon=":material/report:" if color == "red"
+                     else ":material/fact_check:")
+        st.write(report.get("resumen") or "Sin resumen.")
+        for warning in report.get("advertencias", []):
+            st.warning(warning, icon=":material/warning:")
+
+        social = [x for x in perfiles if x.get("confidence") == "official"]
+        with st.container(horizontal=True, vertical_alignment="center"):
+            if check["confidence"]:
+                st.badge(f"Confianza {check['confidence']}", color="blue",
+                         icon=":material/verified:")
+            st.badge(f"{check['evidence_count']} evidencias", color="gray",
+                     icon=":material/inventory_2:")
+            for perfil in social:
+                st.badge(perfil["platform"].capitalize(), color="violet",
+                         icon=":material/link:")
+        if social:
+            st.caption("Perfiles identificados: " + " · ".join(
+                f"[{x['platform'].capitalize()}]({x['url']})" for x in social))
+        elif any(x.get("confidence") == "candidate" for x in perfiles):
+            st.caption("Wikidata propuso perfiles, pero quedan pendientes de "
+                       "validación antes de recolectarlos.")
+
+        evidencias_por_ref = {f"E{x['position']}": x for x in check["evidencias"]}
+        for hallazgo in report.get("hallazgos", []):
+            refs = [r for r in hallazgo.get("evidencias", [])
+                    if r in evidencias_por_ref]
+            # Cada hallazgo en su propia caja: antes eran tres parrafos seguidos y no se
+            # veia donde terminaba uno y empezaba el siguiente.
+            with st.container(border=True):
+                with st.container(horizontal=True, horizontal_alignment="distribute",
+                                  vertical_alignment="center"):
+                    st.markdown(f"**{hallazgo['titulo']}**")
+                    st.badge(f"impacto {hallazgo['impacto']:+d}",
+                             color=intel_color(hallazgo["impacto"]),
+                             icon=":material/adjust:")
+                st.caption(f"Certeza: {hallazgo['certeza']}")
+                st.write(hallazgo["explicacion"])
+                if refs:
+                    st.caption("Fuentes: " + " · ".join(
+                        f"[{r} — {evidencias_por_ref[r]['source']}]"
+                        f"({evidencias_por_ref[r]['url']})" for r in refs))
+        if evidencias and check["evidencias"]:
+            with st.expander(f"Ver las {len(check['evidencias'])} evidencias",
+                             icon=":material/library_books:"):
+                for e in check["evidencias"]:
+                    st.markdown(f"**E{e['position']} · [{e['title']}]({e['url']})**")
+                    st.caption(f"{e['source']} · {e['published_at'] or 'fecha desconocida'}")
+                    if e["snippet"]:
+                        st.write(e["snippet"])
 
 
 @st.cache_data(show_spinner="Leyendo la imagen…")

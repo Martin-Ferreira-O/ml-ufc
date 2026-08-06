@@ -29,8 +29,8 @@ ATOM = b"""<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
 
 
 def pagina_intel_vacia():
-    from ufc.ui import tab_intel
-    tab_intel._ultimo = lambda: None
+    from ufc.ui import comunes, tab_intel
+    comunes.intel_evento = lambda: None
     tab_intel._metadata_local = lambda: {"event": None}
     tab_intel._configuracion_vps = lambda: None
     tab_intel.render()

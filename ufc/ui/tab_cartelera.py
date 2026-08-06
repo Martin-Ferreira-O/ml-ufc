@@ -4,6 +4,7 @@ import datetime
 
 import streamlit as st
 
+from ufc import nombres
 from ufc.datos import betano, cartelera, oddsapi
 from ufc.modelo import predict
 from ufc.registro import ledger, predictores
@@ -141,6 +142,34 @@ def _metodos(m):
                "del historial del par.")
 
 
+def _intel(evento):
+    """Los informes del bot indexados por peleador, solo si son de este evento.
+
+    El bot revisa la cartelera a menos de ocho dias y Cartelera lista noventa: para
+    cualquier otro evento no hay nada que mostrar todavia.
+    """
+    informe = comunes.intel_evento()
+    if not informe or (nombres.normalizar(informe["event_name"]) !=
+                       nombres.normalizar(evento["evento"])):
+        return {}, {}
+    checks = {nombres.normalizar(c["fighter"]): c for c in informe["checks"]}
+    perfiles = comunes.intel_perfiles(tuple(c["fighter"] for c in informe["checks"]))
+    return checks, perfiles
+
+
+def _detalle(pelea, fila, suyos, perfiles):
+    """El voto humano y el contexto de la pelea, plegados: en una cartelera numerada son
+    catorce peleas y dos informes por pelea."""
+    with st.expander("Picks e inteligencia", icon=":material/how_to_vote:"):
+        if fila.detalle:
+            comunes.picks_pelea(fila)
+        else:
+            st.caption("Ningún predictor cargó esta pelea todavía.")
+        for lado, check in suyos:
+            comunes.intel_tarjeta(check, perfiles[check["fighter"]],
+                                  titulo=pelea[lado], evidencias=False)
+
+
 def _visible(pelea, busqueda, solo_cuota, cuotas):
     if solo_cuota and not cuotas:
         return False
@@ -191,6 +220,14 @@ def render(modelo, estado, pagina_predictores=None):
         st.warning("Betano no respondió: la cartelera va sin cuotas ni coincidencia.",
                    icon=":material/cloud_off:")
     cuotas_de = [betano.buscar(tabla, p["a"], p["b"]) for p in evento["peleas"]]
+    preds = [cartelera.predecir(p, modelo, estado, c, evento["fecha"])
+             for p, c in zip(evento["peleas"], cuotas_de)]
+    # `ranking` necesita la cartelera entera y reordena sus filas: `orden` es el indice
+    # original de la pelea, que es por donde se vuelve a unir con el loop de abajo.
+    rank = predictores.ranking(evento["peleas"], predictores.leer(evento["evento"]),
+                               preds, cuotas_de)
+    por_orden = {int(f.orden): f for f in rank.itertuples()}
+    checks, perfiles = _intel(evento)
     # Si no hay ninguna, el motivo es el evento entero, no cada pelea: decirlo una
     # vez evita que parezca que el matcheo falló pelea por pelea.
     if tabla and not any(cuotas_de):
@@ -209,10 +246,9 @@ def render(modelo, estado, pagina_predictores=None):
                                     "publicó precio.")
 
     mostradas = 0
-    for i, (pelea, cuotas) in enumerate(zip(evento["peleas"], cuotas_de)):
-        # Predecir y congelar va antes de filtrar: el ledger tiene que registrar toda la
-        # cartelera, no solo lo que quedó a la vista.
-        r = cartelera.predecir(pelea, modelo, estado, cuotas, evento["fecha"])
+    for i, (pelea, cuotas, r) in enumerate(zip(evento["peleas"], cuotas_de, preds)):
+        # Congelar va antes de filtrar: el ledger tiene que registrar toda la cartelera,
+        # no solo lo que quedó a la vista.
         info = oddsapi.buscar(consenso, pelea["a"], pelea["b"]) if consenso else None
         if cuotas and "error" not in r:
             # la primera cuota vista queda congelada en el ledger: es la "apuesta al
@@ -267,10 +303,33 @@ def render(modelo, estado, pagina_predictores=None):
             if m := predict.metodo(modelo, *cartelera.contexto(pelea["peso"], i == 0)):
                 _metodos(m)
             if "error" in r:
+                # Un debut se queda sin modelo, pero las picks y el contexto siguen
+                # siendo lo unico que hay para leerlo: van igual.
                 st.info(f"{r['error']} — el modelo no puede predecir un debut.",
                         icon=":material/person_search:")
+            else:
+                comunes.resultado(pelea["a"], pelea["b"], r, cuotas)
+
+            # Cuando no hay ni una pick ni un informe no se dibuja nada: una cartelera a
+            # dos meses no tiene ninguna de las dos cosas y serian catorce filas vacias.
+            fila = por_orden[i]
+            suyos = [(lado, checks[clave]) for lado in ("a", "b")
+                     if (clave := nombres.normalizar(pelea[lado])) in checks]
+            if not fila.predictores and not suyos:
                 continue
-            comunes.resultado(pelea["a"], pelea["b"], r, cuotas)
+            with st.container(horizontal=True, vertical_alignment="center"):
+                if fila.predictores:
+                    st.badge(f"{fila.senal} · {fila.seleccion or 'sin mayoría'} · "
+                             f"{fila.predictores} "
+                             f"{'predictor' if fila.predictores == 1 else 'predictores'}",
+                             color="green" if fila.fuerte else "gray",
+                             icon=":material/verified:" if fila.fuerte
+                             else ":material/how_to_vote:")
+                for lado, check in suyos:
+                    st.badge(f"{pelea[lado]} {comunes.intel_etiqueta(check['score'])}",
+                             color=comunes.intel_color(check["score"]),
+                             icon=":material/manage_search:")
+            _detalle(pelea, fila, suyos, perfiles)
 
     if not mostradas:
         st.info("Ninguna pelea de esta cartelera coincide con el filtro.",

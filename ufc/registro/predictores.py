@@ -476,17 +476,26 @@ def ranking(peleas, picks, preds, cuotas_de):
     picks = picks[picks["revisado"]].copy() if len(picks) else picks
     pesos_df = confiabilidad()
     pesos = dict(zip(pesos_df["predictor"], pesos_df["peso"]))
+    precision = dict(zip(pesos_df["predictor"], pesos_df["acierto"]))
+    totales = dict(zip(pesos_df["predictor"], pesos_df["total"]))
     filas = []
     for orden, (pelea, r, cuotas) in enumerate(zip(peleas, preds, cuotas_de)):
         pp = picks[(picks["a"] == pelea["a"]) & (picks["b"] == pelea["b"])] \
             if len(picks) else picks
         votos = {"a": 0.0, "b": 0.0}
         conteo = {"a": 0, "b": 0}
+        detalle = []
         for pick in pp.itertuples():
             peso = pesos.get(pick.predictor, 0.5)
             if pick.pick in votos:
                 votos[pick.pick] += peso
                 conteo[pick.pick] += 1
+            # Un predictor sin resultados cargados todavia no tiene precision: va en None
+            # y no en 0%, que se leeria como "nunca acerto".
+            detalle.append({"predictor": pick.predictor,
+                            "eligio": _quien(pelea, pick.pick),
+                            "acierto": precision.get(pick.predictor),
+                            "total": int(totales.get(pick.predictor, 0))})
         total_peso = sum(votos.values())
         if not total_peso or votos["a"] == votos["b"]:
             lado, apoyo = None, (0.5 if total_peso else np.nan)
@@ -518,7 +527,7 @@ def ranking(peleas, picks, preds, cuotas_de):
             "votos": conteo.get(lado, 0) if lado else 0,
             "predictores": len(pp), "modelo_confirma": conf_modelo,
             "mercado_confirma": conf_mercado, "confirmaciones": confirmaciones,
-            "senal": senal, "fuerte": fuerte,
+            "senal": senal, "fuerte": fuerte, "detalle": detalle,
             "cuota": (cuotas[0] if lado == "a" else cuotas[1]) if cuotas and lado else np.nan,
         })
     df = pd.DataFrame(filas)

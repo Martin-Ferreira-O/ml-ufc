@@ -259,26 +259,8 @@ def _comparativa(evento, peleas, picks_evento, modelo, estado):
                     st.badge(fila.senal, color="green" if fila.fuerte else "gray",
                              icon=":material/verified:" if fila.fuerte
                              else ":material/how_to_vote:")
-            if not fila.seleccion:
-                st.caption("No hay una mayoría humana para esta pelea.")
-                continue
-            st.markdown(f"**Selección humana: {fila.seleccion}**")
-            st.progress(float(fila.apoyo),
-                        text=f"apoyo {fila.apoyo:.0%} · {fila.votos} de "
-                             f"{fila.predictores} predictores")
-            with st.container(horizontal=True, vertical_alignment="center"):
-                st.badge("Modelo coincide" if fila.modelo_confirma
-                         else "Modelo no coincide",
-                         color="blue" if fila.modelo_confirma else "gray",
-                         icon=":material/psychology:")
-                st.badge("Mercado coincide" if fila.mercado_confirma
-                         else "Mercado no coincide",
-                         color="orange" if fila.mercado_confirma else "gray",
-                         icon=":material/storefront:")
-                if pd.notna(fila.cuota):
-                    st.badge(f"Cuota {fila.cuota:.2f}", color="violet",
-                             icon=":material/sell:")
-            if pd.notna(fila.cuota):
+            comunes.picks_pelea(fila)
+            if fila.seleccion and pd.notna(fila.cuota):
                 if st.button("Agregar a la boleta", icon=":material/add_shopping_cart:",
                              key=f"rank_bet_{evento['evento']}_{fila.orden}"):
                     boleta.agregar(evento["evento"], evento["fecha"], fila.a, fila.b,

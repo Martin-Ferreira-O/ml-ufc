@@ -111,6 +111,7 @@ porque son módulos de un paquete, no scripts sueltos.
 .venv/bin/python -m ufc.datos.sherdog    # record pre-UFC (cacheado: solo peleadores nuevos)
 .venv/bin/python -m ufc.modelo.features  # construye las features (~1 min)
 .venv/bin/python -m ufc.modelo.train     # entrena y evalúa (~1 min)
+.venv/bin/python -m ufc.modelo.backtest  # grilla de umbrales y segmentos (~5 min, opcional)
 .venv/bin/streamlit run app.py           # la app
 ```
 
@@ -135,7 +136,7 @@ ufc/
 ├── nombres.py          normalizar(): la clave canónica de un peleador
 ├── datos/              lo que toca la red: fetch, wiki, sherdog, cartelera,
 │                       betano, oddsapi
-├── modelo/             el núcleo: features, train, predict
+├── modelo/             el núcleo: features, train, predict, calibra, backtest
 ├── registro/           seguimiento del modelo, predictores y apuestas reales
 └── ui/                 comunes.py + una página por archivo (tab_*.py)
 ```
@@ -152,6 +153,8 @@ algo que se ve en pantalla → la `tab_*.py` de esa pestaña; una ruta nueva →
 | `ufc/datos/sherdog.py` | Resuelve cada peleador a su ficha de [Sherdog](https://www.sherdog.com) y extrae su **récord pre-UFC** del circuito regional, con fecha por combate — el corte anti-leakage es el debut en UFC. Valida cada ficha contra peleas de UFC ya conocidas (fecha + rival), porque el buscador devuelve homónimos; cachea por ficha, así que re-correrlo solo baja peleadores nuevos. `--autocheck` corre los casos de parseo sin red. | `data/sherdog_previo.csv` |
 | `ufc/modelo/features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores**. Cada tasa por minuto mantiene su propia exposición observada; los formatos antiguos usan la duración declarada. La taxonomía versionada trata doctor stoppage como KO/TKO y no fuerza DQ/CNC/other a decisión. Cada pelea genera dos filas espejadas. | `data/features.csv` |
 | `ufc/modelo/train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal de desarrollo y rolling-origin. Las pruebas de bloques usan bootstrap clusterizado por evento. El bundle final se escribe atómicamente e incluye manifiesto con hashes, fechas, filas, commit, dependencias, parámetros, métricas y dominio validado; el propio manifiesto declara que no existe holdout histórico intacto. | `data/model.pkl`, `data/fighter_state.csv` |
+| `ufc/modelo/calibra.py` | Calibración de probabilidades: Platt (logística sobre el logit), isotónica e identidad como baseline, más ECE y curva de fiabilidad. `prequencial()` calibra cada fold con los **anteriores** — un calibrador ajustado sobre las predicciones que corrige da un ECE de casi cero por construcción. Todos simetrizan (`p(A,B) + p(B,A) = 1`) y recortan los extremos. | — |
+| `ufc/modelo/backtest.py` | `python -m ufc.modelo.backtest`. Flat-bet de 1 unidad sobre una grilla de 21 umbrales de ventaja, con IC95% clusterizado por evento, curva de bankroll, drawdown y 34 niveles de segmento. Generaliza `train.apostabilidad`, que medía por tramo de confianza. El mercado se desviguea con el método power: con la implícita cruda (`1/cuota`) el margen de la casa se contaría como valor. **No reporta CLV histórico: no es computable** (ver abajo). | `data/oof.csv`, `data/backtest.json` |
 | `ufc/modelo/predict.py` | `predict(a, b, event_date=, cuotas=None, circ_a=, circ_b=) -> dict`. Usa la fecha programada para el snapshot y tres estados de circunstancia (`1/0/NaN` = sí/no/desconocido). Con cuotas muestra mercado, modelo y coincidencia descriptiva, pero **nunca recomienda automáticamente una apuesta**: el tramo anterior fue elegido a posteriori y su IC cruza cero. | — |
 | `ufc/datos/cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. Registra el primer avistaje de cada pelea en `data/cartelera_hist.csv`, que es lo único que permite detectar reemplazos tardíos (pelea anunciada a días del evento) — justo la información que el mercado tiene y el modelo no. | `data/cartelera_hist.csv` |
 | `ufc/datos/betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. Cada corrida exitosa deja un tick por pelea en `data/betano_hist.csv`: el histórico apertura→cierre del que sale el CLV. `python -m ufc.datos.betano` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json`, `data/betano_hist.csv` |
@@ -159,7 +162,7 @@ algo que se ve en pantalla → la `tab_*.py` de esa pestaña; una ruta nueva →
 | `ufc/registro/predictores.py` | Mantiene `picks.csv` como vista actual y agrega un audit log append-only (`pick_created`, `pick_revised`, `pick_voided`) con timestamp UTC, origen y revisor. Los eventos pasados aparecen en una vista explícita de Predictores; allí se cargan picks/ganadores sin recalcular hoy el modelo sobre estado futuro. | `data/picks.csv`, `data/picks_audit.csv`, `data/resultados.csv` |
 | `ufc/registro/apuestas.py` | Registra únicamente apuestas realmente hechas, simples o combinadas, con importe y cuota en CLP. Liquida desde los resultados cuando puede y admite corregir cobro/estado para cash-out, anulaciones y ajustes. | `data/apuestas.csv`, `data/apuestas_detalle.csv` |
 | `ufc/datos/oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno. La mediana desvigueada sirve para detectar una **mejor cuota que el promedio** sin depender del modelo. Sin key devuelve `{}` y la app sigue igual. | — |
-| `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable y mide dinero real; **Seguimiento** conserva separado el forward test hipotético. Cartelera y Matchup mantienen el detalle del modelo y mercado. | — |
+| `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable y mide dinero real; **Seguimiento** conserva separado el forward test hipotético; **Backtest** muestra la grilla de umbrales, el bankroll, el drawdown y los segmentos que produce `ufc/modelo/backtest.py`. Cartelera y Matchup mantienen el detalle del modelo y mercado. | — |
 | `test_app.py` | `python test_app.py`. Además de simetría, fuentes, ledger y UI, verifica taxonomía/settlement, formatos antiguos, bootstrap clusterizado, manifiesto con hashes, no-bet por defecto, auditoría de revisiones y navegación real a Pasados → Ganadores. No toca la red. | — |
 
 ### De dónde salen las peleas que todavía no ocurrieron
@@ -279,6 +282,53 @@ etiqueta.
 
 Subir el umbral de EV no ayuda — está medido que filtrar por EV alto empeora. Por eso la
 regla es EV > 0 y nada más.
+
+### El backtest completo: 21 umbrales, ninguno con ventaja
+
+`python -m ufc.modelo.backtest` barre la grilla entera de umbrales de ventaja
+(`p_modelo − p_mercado`, en puntos de probabilidad) sobre 6561 lados con cuota real,
+20 folds de rolling-origin, IC95% clusterizado por evento:
+
+| umbral | apuestas | ROI | IC95% | EV que prometía el modelo |
+|---|---|---|---|---|
+| 0% | 6561 | −5.29% | [−8.64%, −1.89%] | +37% |
+| 5% | 5006 | −6.70% | [−10.69%, −2.83%] | +48% |
+| 10% | 3523 | −7.98% | [−13.04%, −3.07%] | +62% |
+| 15% | 2248 | −8.39% | [−15.30%, −1.57%] | +80% |
+| 20% | 1299 | −1.31% | [−10.96%, +8.04%] | +100% |
+
+**Ningún umbral deja el IC95% del ROI por encima de cero.** Hasta el 16% el intervalo está
+enteramente **por debajo** de cero: no es que no se pueda concluir, es que está medido que
+pierde. Del 17% en adelante el intervalo cruza cero solo porque quedan pocas apuestas.
+
+La columna que explica todo es la última. El modelo cree que gana +37% por apuesta y
+pierde 5%; cuanto más alto el umbral, más grande la promesa y peor el resultado. Eso no es
+mala suerte: es una probabilidad sesgada **contra el mercado**. El modelo ciego está
+comprimido hacia 50%, y como `EV = cuota·p − 1 ≈ p_modelo/p_mercado − 1`, esa compresión
+sola pone al no favorito arriba en todas las peleas.
+
+Calibrar no lo arregla, y está medido: con calibración prequencial (cada fold ajustado con
+los anteriores), ni Platt ni la isotónica le ganan al modelo crudo — la isotónica
+directamente **se descarta** (+0.0077 de log loss, IC95% [+0.0010, +0.0159]). El ECE del
+modelo crudo ya es 0.0139. Calibrar corrige el sesgo contra la **realidad**, y ese el
+modelo no lo tiene; lo que tiene es sesgo contra el **mercado**, que es otro problema.
+Por eso `train.py` no serializa ningún calibrador y `p_a_cal == p_a`.
+
+La pestaña **Backtest** de la app muestra las curvas, el bankroll, el drawdown y los
+segmentos. Los segmentos hay que leerlos con cuidado: son 34 niveles mirados sobre los
+mismos datos, así que se esperan ~2 “hallazgos” de puro azar. Que las peleas de título
+den +9% con n=310 es una hipótesis para testear hacia adelante, no un segmento rentable.
+
+### CLV histórico: no es computable
+
+`data/raw/ufc_odds.csv` trae **una sola foto** de cuota por pelea (7177 filas, un
+`R_odds`/`B_odds`), no apertura y cierre. Sin dos precios no hay CLV, así que el backtest
+no lo reporta. El CLV solo existe **hacia adelante**, en el Historial, comparando la cuota
+congelada contra los ticks de `betano_hist.csv`.
+
+Y esas cuotas históricas son de cierre o consenso, mientras que la app congela en apertura
+en una sola casa: el vig mediano del archivo es 3.70% contra 5.88% de Betano en vivo. El
+backtest acota la expectativa, no reproduce el juego que juega la app.
 
 ## Cómo suele terminar la pelea
 
