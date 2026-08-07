@@ -83,7 +83,7 @@ def render():
         "resultado es una probabilidad sesgada contra el mercado, no una racha.",
         icon=":material/warning:")
 
-    tabs = st.tabs(["ROI por umbral", "Bankroll", "Segmentos", "Calibración"])
+    tabs = st.tabs(["ROI por umbral", "Bankroll", "Staking", "Segmentos", "Calibración"])
 
     with tabs[0]:
         st.caption("Cada punto es un umbral de ventaja distinto sobre las MISMAS peleas. "
@@ -95,9 +95,16 @@ def render():
                       y_label="apuestas", color="#F59E0B")
         st.caption("Menos apuestas al subir el umbral es lo esperable. Lo que hay que "
                    "mirar es si el ROI sube más rápido de lo que se ensancha la banda.")
-        st.dataframe(g[["umbral", "n", "roi", "yield", "neto", "acierto", "ev_medio",
-                        "cuota_media", "lo", "hi"]],
-                     column_config=comunes.COLUMNAS_BT, hide_index=True)
+        cols = ["umbral", "n", "roi", "yield", "neto", "acierto", "ev_medio",
+                "cuota_media", "lo", "hi"]
+        if "n_para_concluir" in g:
+            cols.insert(3, "n_para_concluir")
+        st.dataframe(g[cols], column_config=comunes.COLUMNAS_BT, hide_index=True)
+        if "n_para_concluir" in g:
+            st.caption("«Necesita» es cuántas apuestas pediría una prueba de potencia "
+                       "para separar ese ROI de cero. Es la columna que desarma la tabla: "
+                       "los ROI menos malos son los de umbrales altos, que son justo los "
+                       "que tienen menos apuestas y más lejos están de poder concluir.")
         ev0 = d["ev_positivo"]
         if ev0["n"]:
             st.caption(f"Filtro clásico `EV > 0`: {ev0['n']} apuestas, ROI "
@@ -120,6 +127,60 @@ def render():
                           color="#F59E0B")
 
     with tabs[2]:
+        stk = d.get("staking")
+        if not stk:
+            st.info("Regenerá `data/backtest.json` para ver la comparación de staking.")
+        else:
+            par = d.get("stake_params", {})
+            st.caption(
+                f"Las MISMAS apuestas del umbral {d['umbral_reportado']:.0%} con distintas "
+                f"formas de dimensionar, sobre una banca de 100. Parámetros congelados en "
+                f"`config/gate.json`: tope {par.get('tope', 0):.0%} por apuesta, "
+                f"{par.get('tope_evento', 0):.0%} por evento, y cada cartelera se "
+                "dimensiona con la banca al empezarla (las líneas cierran juntas: no se "
+                "puede esperar el resultado de la primera pelea para apostar la segunda).")
+            tabla = pd.DataFrame(stk)
+            st.dataframe(
+                tabla[[c for c in ("staking", "banca_final", "drawdown_max",
+                                   "tope_manda", "ruina_50", "n") if c in tabla]],
+                hide_index=True, column_config={
+                    "staking": st.column_config.TextColumn("Staking", pinned=True),
+                    "banca_final": st.column_config.NumberColumn(
+                        "Banca final", format="%.2f",
+                        help="Desde 100. El flat de 1 unidad puede terminar negativo, "
+                             "que en la vida real quiere decir que se acabó la plata."),
+                    "drawdown_max": st.column_config.NumberColumn(
+                        "Peor caída", format="%.1f",
+                        help="En unidades para el flat y en fracción del pico para Kelly. "
+                             "No son comparables entre sí: es exactamente por eso que "
+                             "Kelly permite hablar de drawdown y el flat no."),
+                    "tope_manda": st.column_config.NumberColumn(
+                        "Manda el tope", format="percent",
+                        help="Proporción de apuestas donde el tope duro corta a Kelly. "
+                             "Cerca de 100% significa que quien dimensiona NO es Kelly."),
+                    "ruina_50": st.column_config.NumberColumn(
+                        "P(perder la mitad)", format="percent",
+                        help="Probabilidad de que la banca toque alguna vez la mitad, "
+                             "apostando con ventaja real y probabilidad exacta. Kelly "
+                             "completo da 50%: por eso nunca se usa completo."),
+                    "n": st.column_config.NumberColumn("Apuestas"),
+                })
+            curva_k = pd.DataFrame(d.get("curva_kelly") or [])
+            if len(curva_k):
+                curva_k["date"] = pd.to_datetime(curva_k["date"])
+                st.line_chart(curva_k.set_index("date")[["banca"]], y_label="banca",
+                              color="#60A5FA")
+                st.caption("Banca compuesta con la fracción de `config/gate.json`. La "
+                           "curva baja porque la regla no tiene ventaja; lo que muestra "
+                           "es la FORMA de la caída, no una estrategia.")
+            st.warning(
+                "Las tres fracciones de Kelly terminan casi iguales porque el tope las "
+                "corta a todas: este modelo cree tener +38% de EV y su Kelly pide "
+                "fracciones absurdas. Cuando el tope manda en casi todas las apuestas, "
+                "quien dimensiona no es Kelly — y ésa es justamente la defensa del tope.",
+                icon=":material/warning:")
+
+    with tabs[3]:
         niveles = sum(len(v) for v in d["segmentos"].values())
         st.caption(f"Al umbral {d['umbral_reportado']:.0%}. Son **{niveles} niveles** "
                    f"mirados sobre los mismos datos: con ~5% de falsos positivos por "
@@ -133,7 +194,7 @@ def render():
                      "lo", "hi", "concluyente"]],
                     column_config=comunes.COLUMNAS_BT, hide_index=True)
 
-    with tabs[3]:
+    with tabs[4]:
         st.caption("Cada fold se calibra con los folds anteriores, nunca con los suyos. "
                    "Un calibrador ajustado sobre las predicciones que corrige da un ECE "
                    "de casi cero por construcción y no significa nada.")

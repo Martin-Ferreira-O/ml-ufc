@@ -46,6 +46,11 @@ def _parsear(payload):
         if peleas:
             eventos.append({"evento": e.get("name", "?"),
                             "fecha": str(e.get("date", ""))[:10],
+                            # ESPN manda "2026-08-15T21:00Z" y antes se tiraba la hora.
+                            # Es el unico corte estricto que hace computable el CLV: sin
+                            # ella, el "cierre" se elige con fecha+1 dia y puede tomar
+                            # cuotas EN VIVO o posteriores al combate.
+                            "inicio_utc": str(e.get("date", "")) or None,
                             # ESPN lista los preliminares primero y el main event ultimo
                             "peleas": peleas[::-1]})
     return eventos
@@ -63,13 +68,15 @@ def _archivar(eventos, hoy=None):
     with HIST.open("a", newline="") as f:
         w = csv.writer(f)
         if not vistas:
-            w.writerow(["visto", "evento", "a", "b", "fecha_evento"])
+            # `inicio_utc` va ultima: las filas viejas tienen una columna menos y
+            # agregarla al final las deja leibles sin migrar el archivo.
+            w.writerow(["visto", "evento", "a", "b", "fecha_evento", "inicio_utc"])
         hoy = (hoy or datetime.date.today()).isoformat()
         for e in eventos:
             for p in e["peleas"]:
                 clave = (e["evento"], p["a"], p["b"])
                 if clave not in vistas:
-                    w.writerow([hoy, *clave, e["fecha"]])
+                    w.writerow([hoy, *clave, e["fecha"], e.get("inicio_utc") or ""])
                     vistas.add(clave)
 
 

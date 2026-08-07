@@ -32,7 +32,7 @@ import pandas as pd
 from sklearn.metrics import brier_score_loss, log_loss
 
 from ufc import rutas
-from ufc.modelo import calibra, features, predict, train
+from ufc.modelo import apuesta, calibra, features, predict, train
 
 OOF = rutas.DATOS / "oof.csv"
 SALIDA = rutas.DATOS / "backtest.json"
@@ -175,18 +175,25 @@ def _fila(s, seed=0):
     """Estadisticas de un conjunto de apuestas flat de 1 unidad, con IC clusterizado."""
     if not len(s):
         return {"n": 0}
-    roi, lo, hi = train.bootstrap(s["pago"].to_numpy(float), seed=seed,
-                                 clusters=s["event"].to_numpy())
+    pago = s["pago"].to_numpy(float)
+    roi, lo, hi = train.bootstrap(pago, seed=seed, clusters=s["event"].to_numpy())
+    sigma = float(np.std(pago, ddof=1)) if len(pago) > 1 else np.nan
+    # Cuantas apuestas harian falta para distinguir ESTE ROI de cero. Va al lado del ROI
+    # a proposito: una fila con ROI +2% y n=800 que necesita 20.000 no dice "gana poco",
+    # dice "no dice nada", y sin este numero las dos se leen igual.
+    necesarias = (apuesta.n_para_detectar(roi, sigma)
+                  if np.isfinite(sigma) and roi else np.inf)
     return {
         "n": int(len(s)),
         # con stake flat ROI y yield son el mismo numero por definicion (turnover = n).
-        # Se emiten los dos porque divergen cuando el stake varia (Kelly, fase 2).
+        # Divergen con Kelly, donde el stake cambia por apuesta: ver `curva`.
         "roi": float(roi), "yield": float(s["pago"].sum() / len(s)),
         "neto": float(s["pago"].sum()),
         "acierto": float(s["gana"].mean()),
         "ev_medio": float(s["ev"].mean()),
         "cuota_media": float(s["q"].mean()),
         "lo": float(lo), "hi": float(hi),
+        "sigma": sigma, "n_para_concluir": float(necesarias),
         "concluyente": bool(len(s) >= MIN_N and (lo > 0 or hi < 0)),
     }
 
@@ -211,6 +218,100 @@ def curva(ap, umbral, banca0=100.0):
     return pd.DataFrame({"date": s["date"].to_numpy(), "acumulado": acum.to_numpy(),
                          "banca": (banca0 + acum).to_numpy(),
                          "drawdown": (acum - acum.cummax()).to_numpy()})
+
+
+def curva_kelly(ap, umbral, banca0=100.0, fraccion=None, tope=None, tope_evento=None):
+    """-> DataFrame por EVENTO con banca compuesta, drawdown en % y crecimiento.
+
+    Tres decisiones que cambian el numero y hay que tener a la vista:
+
+    1. **Se dimensiona por evento, no por apuesta.** Todas las apuestas de una cartelera
+       se calculan contra la banca al empezar esa cartelera. Apostar la segunda pelea de
+       la noche con la banca ya actualizada por la primera supone que se puede esperar el
+       resultado, y no se puede: las lineas se cierran juntas. Ademas saca el artefacto de
+       que el orden de las filas dentro de un evento cambie el resultado.
+    2. **Hay tope por evento.** Si la suma de los stakes de una cartelera pasa el tope,
+       se escalan todos proporcionalmente. Kelly por apuesta trata cada pelea como
+       independiente y dos peleas de la misma noche no lo son.
+    3. **El drawdown va en % del pico**, que con Kelly fraccional si esta bien definido:
+       la banca es multiplicativa y no puede tocar cero. Es la unica version comparable
+       entre estrategias — en unidades, apostar mas siempre parece peor.
+
+    Con `fraccion=1.0` es Kelly completo, que esta aca para poder mostrar por que no se usa.
+    """
+    from ufc.modelo import gate
+
+    par = gate.stake_params()
+    fraccion = par["fraccion"] if fraccion is None else fraccion
+    tope = par["tope"] if tope is None else tope
+    tope_evento = par["tope_evento"] if tope_evento is None else tope_evento
+
+    cols = ["date", "banca", "drawdown", "apostado", "n"]
+    s = ap[ap["ventaja"] >= umbral]
+    if not len(s):
+        return pd.DataFrame(columns=cols)
+
+    banca, pico, filas = float(banca0), float(banca0), []
+    for evento, g in s.groupby("event", sort=False):
+        f = np.minimum(apuesta.kelly(g["p"].to_numpy(float), g["q"].to_numpy(float))
+                       * fraccion, tope)
+        montos = banca * f
+        total = montos.sum()
+        if total > banca * tope_evento and total > 0:
+            montos = montos * (banca * tope_evento / total)
+        banca += float((montos * g["pago"].to_numpy(float)).sum())
+        banca = max(banca, 1e-9)      # con Kelly fraccional no llega a cero, pero no se asume
+        pico = max(pico, banca)
+        filas.append({"date": g["date"].iloc[0], "banca": banca,
+                      "drawdown": banca / pico - 1, "apostado": float(montos.sum()),
+                      "n": int(len(g))})
+    return pd.DataFrame(filas, columns=cols)
+
+
+def _tope_manda(ap, umbral, fraccion, tope):
+    """Que proporcion de las apuestas quedan pegadas al tope en vez de a Kelly.
+
+    Es el numero que hace legible la tabla de staking. Este modelo cree tener +38% de EV,
+    asi que su Kelly pide fracciones enormes y el tope las corta TODAS: las columnas de
+    1/4, 1/2 y Kelly completo terminan casi identicas y eso no significa "la fraccion no
+    importa", significa "aca no esta decidiendo Kelly, esta decidiendo el tope".
+    """
+    s = ap[ap["ventaja"] >= umbral]
+    if not len(s):
+        return 0.0
+    f = apuesta.kelly(s["p"].to_numpy(float), s["q"].to_numpy(float)) * fraccion
+    return float((f > tope).mean())
+
+
+def comparar_staking(ap, umbral, banca0=100.0, fracciones=(0.25, 0.5, 1.0)):
+    """Flat contra Kelly fraccional sobre las MISMAS apuestas: banca final y peor caida.
+
+    El punto no es elegir la que termina mas arriba — con ROI negativo, la que menos
+    apuesta gana siempre, y con ROI positivo gana la que mas, hasta que quiebra. El punto
+    es ver la forma: cuanto crecimiento se compra con cuanto drawdown, y que el flat de
+    1 unidad sobre una banca de 100 no es "conservador", es apostar el 1% de la banca
+    INICIAL para siempre — o sea subir la apuesta relativa a medida que se pierde.
+    """
+    from ufc.modelo import gate
+
+    tope = gate.stake_params()["tope"]
+    plana = curva(ap, umbral, banca0)
+    out = [{"staking": "flat 1u", "banca_final": float(plana["banca"].iloc[-1])
+            if len(plana) else banca0,
+            "drawdown_max": float(plana["drawdown"].min()) if len(plana) else 0.0,
+            "unidad": "unidades", "n": int(len(plana))}]
+    for c in fracciones:
+        k = curva_kelly(ap, umbral, banca0, fraccion=c)
+        nombre = "kelly completo" if c == 1.0 else f"{c:g} kelly"
+        out.append({
+            "staking": nombre, "fraccion": float(c),
+            "banca_final": float(k["banca"].iloc[-1]) if len(k) else banca0,
+            "drawdown_max": float(k["drawdown"].min()) if len(k) else 0.0,
+            "unidad": "fraccion", "n": int(k["n"].sum()) if len(k) else 0,
+            "eventos": int(len(k)),
+            "tope_manda": _tope_manda(ap, umbral, c, tope),
+            "ruina_50": float(apuesta.riesgo_de_ruina(c, 0.5))})
+    return out
 
 
 # ----------------------------------------------------------------- segmentos
@@ -310,6 +411,8 @@ def caveat_dominio(oof):
 
 
 def main(recalcular="--recalcular" in sys.argv):
+    from ufc.modelo import gate
+
     oof = cargar_oof(recalcular)
     print(f"\n{len(oof)} peleas OOF ({oof['date'].min().date()} a "
           f"{oof['date'].max().date()}), {oof['q_a'].notna().sum()} con cuota real")
@@ -346,6 +449,30 @@ def main(recalcular="--recalcular" in sys.argv):
 
     mejor = max((f for f in g if f["n"] >= MIN_N), key=lambda f: f["lo"], default=None)
     umbral = mejor["umbral"] if mejor else 0.0
+
+    # Cuanta muestra pide cada umbral para que su propio ROI se distinga de cero. Es la
+    # columna que desarma la tabla de arriba: los ROI mas lindos son los de menos n.
+    print("\ncuantas apuestas harian falta para concluir cada fila:")
+    for f in g:
+        if f["n"] >= MIN_N:
+            print(f"  {f['umbral']:>6.0%} n={f['n']:>5d}  ROI {f['roi']:+7.2%}  "
+                  f"necesita ~{f['n_para_concluir']:>10,.0f}"
+                  + ("  <-- alcanza" if f["n"] >= f["n_para_concluir"] else ""))
+
+    stk = comparar_staking(ap, umbral)
+    print(f"\nstaking sobre las mismas apuestas (umbral {umbral:.0%}, banca 100):")
+    for f in stk:
+        caida = (f"{f['drawdown_max']:>8.1%}" if f["unidad"] == "fraccion"
+                 else f"{f['drawdown_max']:>7.1f}u")
+        extra = (f"   tope manda en {f['tope_manda']:.0%}   "
+                 f"P(perder la mitad) {f['ruina_50']:.1%}" if "ruina_50" in f else "")
+        print(f"  {f['staking']:16s} banca final {f['banca_final']:>9.2f}  "
+              f"peor caida {caida}{extra}")
+    print("  Las tres fracciones dan casi lo mismo porque el TOPE las corta a todas: este "
+          "modelo\n  cree tener +38% de EV y su Kelly pide fracciones absurdas. Cuando el "
+          "tope manda en\n  casi todas las apuestas, quien dimensiona no es Kelly — y esa "
+          "es la defensa del tope.")
+
     seg = segmentos(oof, ap, umbral, col)
     niveles = sum(len(v) for v in seg.values())
     print(f"\nsegmentos al umbral {umbral:.0%}. Son {niveles} niveles mirados sobre los "
@@ -370,6 +497,9 @@ def main(recalcular="--recalcular" in sys.argv):
                "umbral_reportado": umbral, "min_n": MIN_N, "dominio": dom,
                "curva": curva(ap, umbral).assign(
                    date=lambda d: d["date"].astype(str)).to_dict("records"),
+               "curva_kelly": curva_kelly(ap, umbral).assign(
+                   date=lambda d: d["date"].astype(str)).to_dict("records"),
+               "staking": stk, "stake_params": gate.stake_params(),
                "segmentos": seg,
                "clv": "no computable historicamente: ufc_odds.csv trae una sola foto de "
                       "cuota por pelea, no apertura y cierre. Solo existe prospectivamente "

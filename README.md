@@ -21,6 +21,8 @@ también lo otro, que es lo que importa si el número toca dinero:
 | Log loss del modelo vs. la línea de la casa sin vig | 0.6561 vs **0.6107** — el mercado gana por 0.0453 |
 | ROI de apostar todo el EV positivo del modelo, out-of-sample | **−4.59%**, IC95% [−8.19%, −0.81%] |
 | Umbrales de ventaja (de 21 probados) cuyo IC95% de ROI supera cero | **ninguno** |
+| Apuestas necesarias para verificar un ROI de +2% | **19.623** (~40 años a 500/año) |
+| Apuestas necesarias para verificar un CLV de +2% | **32** |
 
 **El mercado le gana al modelo, y por mucho.** Está medido, no estimado: donde el modelo
 más discrepa de la casa es justo donde peor rinde — en las 1679 peleas donde eligen
@@ -31,6 +33,15 @@ Lo que sí sirve: 65% de acierto está en el techo de lo que logran los modelos 
 UFC, la discrepancia con el mercado es una señal descriptiva útil, y el ledger acumula
 desde ahora las líneas de **apertura** que nadie guardaba — la única pregunta abierta que
 todavía puede dar valor. Todo el detalle, con intervalos de confianza, más abajo.
+
+Y la conclusión que ordena todo lo demás, de
+[`docs/consultoria-apuestas.md`](docs/consultoria-apuestas.md): **el EV de este proyecto
+no puede venir del modelo, tiene que venir del precio.** Un pool logit de dos parámetros
+—el estimador de mínima varianza para “¿el modelo aporta algo sobre la cuota?”— da no
+concluyente contra el mercado solo. Lo que queda por explotar es la mejor cuota entre
+casas y el consenso multi-casa, que no requieren ganarle a nadie. La app calcula el stake
+que correspondería, pero `config/gate.json` mantiene el gate **cerrado** hasta que 100
+apuestas muestren CLV positivo con el IC95% despegado de cero.
 
 ## Instalación
 
@@ -159,8 +170,16 @@ porque son módulos de un paquete, no scripts sueltos.
 .venv/bin/python -m ufc.datos.sherdog    # record pre-UFC (cacheado: solo peleadores nuevos)
 .venv/bin/python -m ufc.modelo.features  # construye las features (~1 min)
 .venv/bin/python -m ufc.modelo.train     # entrena y evalúa (~1 min)
-.venv/bin/python -m ufc.modelo.backtest  # grilla de umbrales y segmentos (~5 min, opcional)
+.venv/bin/python -m ufc.modelo.backtest  # grilla de umbrales, staking y segmentos (~5 min, opcional)
 .venv/bin/streamlit run app.py           # la app
+```
+
+Y los dos que responden preguntas de mercado, independientes del pipeline (no necesitan
+`model.pkl`, solo `data/raw/ufc_odds.csv` el primero y `features.csv` el segundo):
+
+```sh
+.venv/bin/python -m ufc.modelo.devig     # qué método de desvigueo gana, y por cuánto
+.venv/bin/python -m ufc.modelo.pool      # ¿el modelo aporta algo sobre el precio? (~5 min)
 ```
 
 O desde la terminal, sin app:
@@ -184,9 +203,11 @@ ufc/
 ├── nombres.py          normalizar(): la clave canónica de un peleador
 ├── datos/              lo que toca la red: fetch, wiki, sherdog, cartelera,
 │                       betano, oddsapi
-├── modelo/             el núcleo: features, train, predict, calibra, backtest
-├── registro/           seguimiento del modelo, predictores y apuestas reales
+├── modelo/             el núcleo: features, train, predict, calibra, backtest,
+│                       devig, pool, apuesta, gate
+├── registro/           seguimiento del modelo, predictores, apuestas reales y banca
 └── ui/                 comunes.py + una página por archivo (tab_*.py)
+config/gate.json        la regla de apuesta preregistrada
 ```
 
 Dónde va un cambio: fuente nueva → `ufc/datos/`; feature nueva → `ufc/modelo/features.py`;
@@ -195,13 +216,14 @@ algo que se ve en pantalla → la `tab_*.py` de esa pestaña; una ruta nueva →
 ## Qué versiona el repo, y qué no
 
 `data/` pesa ~490 MB en una instalación andando y casi todo eso es cache. El repo versiona
-solo **135 KB**: los seis archivos que el pipeline no puede reconstruir hacia atrás.
+solo **135 KB**: los archivos que el pipeline no puede reconstruir hacia atrás.
 
 | versionado | filas | por qué no se puede regenerar |
 |---|---|---|
 | `data/ledger.csv` | 16 | la predicción congelada al **primer avistaje** de la pelea, con la cuota de ese momento. Re-correrlo hoy daría otra cosa. |
 | `data/cartelera_hist.csv` | 104 | cuándo se vio anunciada cada pelea por primera vez. Es lo único que detecta un reemplazo tardío, y sólo se puede observar en vivo. |
 | `data/betano_hist.csv` | 754 | ticks de cuota apertura→cierre. Nadie publica este histórico: o lo guardás mientras pasa, o no existe. |
+| `data/odds_hist.csv` | — | lo mismo pero **por casa**, vía The Odds API. Es la única fuente posible de CLV contra el mejor precio del mercado, y empieza a acumularse recién ahora. |
 | `data/picks.csv` + `_audit.csv` | 255 + 309 | picks públicos de 8 predictores de MMA, recopilados a mano, con audit log append-only. |
 | `data/resultados.csv` | 14 | ganadores cargados a mano. |
 
@@ -230,16 +252,21 @@ Lo demás queda fuera de Git a propósito, y no sólo por tamaño:
 | `ufc/modelo/features.py` | recorre las peleas en orden cronológico y arma, para cada una, las features de ambos peleadores **usando solo sus peleas anteriores**. Cada tasa por minuto mantiene su propia exposición observada; los formatos antiguos usan la duración declarada. La taxonomía versionada trata doctor stoppage como KO/TKO y no fuerza DQ/CNC/other a decisión. Cada pelea genera dos filas espejadas. | `data/features.csv` |
 | `ufc/modelo/train.py` | Promedio de `HistGradientBoostingClassifier` y una logística sin intercepto, con split temporal de desarrollo y rolling-origin. Las pruebas de bloques usan bootstrap clusterizado por evento. El bundle final se escribe atómicamente e incluye manifiesto con hashes, fechas, filas, commit, dependencias, parámetros, métricas y dominio validado; el propio manifiesto declara que no existe holdout histórico intacto. | `data/model.pkl`, `data/fighter_state.csv` |
 | `ufc/modelo/calibra.py` | Calibración de probabilidades: Platt (logística sobre el logit), isotónica e identidad como baseline, más ECE y curva de fiabilidad. `prequencial()` calibra cada fold con los **anteriores** — un calibrador ajustado sobre las predicciones que corrige da un ECE de casi cero por construcción. Todos simetrizan (`p(A,B) + p(B,A) = 1`) y recortan los extremos. | — |
-| `ufc/modelo/backtest.py` | `python -m ufc.modelo.backtest`. Flat-bet de 1 unidad sobre una grilla de 21 umbrales de ventaja, con IC95% clusterizado por evento, curva de bankroll, drawdown y 34 niveles de segmento. Generaliza `train.apostabilidad`, que medía por tramo de confianza. El mercado se desviguea con el método power: con la implícita cruda (`1/cuota`) el margen de la casa se contaría como valor. **No reporta CLV histórico: no es computable** (ver abajo). | `data/oof.csv`, `data/backtest.json` |
+| `ufc/modelo/backtest.py` | `python -m ufc.modelo.backtest`. Flat-bet de 1 unidad sobre una grilla de 21 umbrales de ventaja, con IC95% clusterizado por evento, curva de bankroll, drawdown y 34 niveles de segmento. Cada fila trae además **cuántas apuestas necesitaría para concluir algo**, y `comparar_staking` mide flat contra Kelly fraccional sobre las mismas apuestas (banca compuesta, drawdown en % del pico, dimensionado **por evento** porque las líneas cierran juntas). El mercado se desviguea con el método power: con la implícita cruda (`1/cuota`) el margen de la casa se contaría como valor. **No reporta CLV histórico: no es computable** (ver abajo). | `data/oof.csv`, `data/backtest.json` |
 | `ufc/modelo/predict.py` | `predict(a, b, event_date=, cuotas=None, circ_a=, circ_b=) -> dict`. Usa la fecha programada para el snapshot y tres estados de circunstancia (`1/0/NaN` = sí/no/desconocido). Con cuotas muestra mercado, modelo y coincidencia descriptiva, pero **nunca recomienda automáticamente una apuesta**: el tramo anterior fue elegido a posteriori y su IC cruza cero. | — |
 | `ufc/datos/cartelera.py` | Baja las peleas anunciadas de la [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) y predice cada una. Sin argumentos lista los eventos; con un número recorre ese evento pelea por pelea (Enter para avanzar). Descarta los `TBA` y ordena la cartelera con el main event primero. Registra el primer avistaje de cada pelea en `data/cartelera_hist.csv`, que es lo único que permite detectar reemplazos tardíos (pelea anunciada a días del evento) — justo la información que el mercado tiene y el modelo no. | `data/cartelera_hist.csv` |
 | `ufc/datos/betano.py` | `cuotas() -> {pelea: (cuota_a, cuota_b)}` leyendo el `window["initial_state"]` que [lat.betano.com](https://lat.betano.com) deja embebido en el HTML, y `buscar(tabla, a, b)` que lo matchea contra los nombres como los escribe ESPN. Dos o tres requests, sin headless browser. Si Betano no responde devuelve `{}` en vez de romper. Cada corrida exitosa deja un tick por pelea en `data/betano_hist.csv`: el histórico apertura→cierre del que sale el CLV. `python -m ufc.datos.betano` es el modo descubrimiento: baja el estado crudo y lista las peleas con cuota. | `data/betano_raw.json`, `data/betano_hist.csv` |
-| `ufc/registro/ledger.py` | La primera vez que la app observa una pelea con cuota, la predicción queda congelada en `data/ledger.csv` para seguimiento experimental. No se llama “apertura” sin timestamp de publicación de la casa. `evaluar()` conserva las marcas históricas de la regla retirada y calcula resultado/CLV cuando hay cierre utilizable. | `data/ledger.csv` |
+| `ufc/registro/ledger.py` | La primera vez que la app observa una pelea con cuota, la predicción queda congelada en `data/ledger.csv` para seguimiento experimental. No se llama “apertura” sin timestamp de publicación de la casa. `evaluar()` conserva las marcas históricas de la regla retirada y calcula resultado y CLV: el de cuotas (`clv`) y el económico (`ev_al_cierre`), este último con IC95% clusterizado por evento, `%` que batió al cierre y potencia. El cierre se toma **estrictamente antes del `inicio_utc`** del evento, no `fecha + 1 día`, que podía colar cuotas en vivo. | `data/ledger.csv` |
 | `ufc/registro/predictores.py` | Mantiene `picks.csv` como vista actual y agrega un audit log append-only (`pick_created`, `pick_revised`, `pick_voided`) con timestamp UTC, origen y revisor. Los eventos pasados aparecen en una vista explícita de Predictores; allí se cargan picks/ganadores sin recalcular hoy el modelo sobre estado futuro. | `data/picks.csv`, `data/picks_audit.csv`, `data/resultados.csv` |
 | `ufc/registro/apuestas.py` | Registra únicamente apuestas realmente hechas, simples o combinadas, con importe y cuota en CLP. Liquida desde los resultados cuando puede y admite corregir cobro/estado para cash-out, anulaciones y ajustes. | `data/apuestas.csv`, `data/apuestas_detalle.csv` |
-| `ufc/datos/oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno. La mediana desvigueada sirve para detectar una **mejor cuota que el promedio** sin depender del modelo. Sin key devuelve `{}` y la app sigue igual. | — |
-| `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable y mide dinero real; **Seguimiento** conserva separado el forward test hipotético; **Backtest** muestra la grilla de umbrales, el bankroll, el drawdown y los segmentos que produce `ufc/modelo/backtest.py`. Cartelera y Matchup mantienen el detalle del modelo y mercado. | — |
-| `test_app.py` | `python test_app.py`. Además de simetría, fuentes, ledger y UI, verifica taxonomía/settlement, formatos antiguos, bootstrap clusterizado, manifiesto con hashes, no-bet por defecto, auditoría de revisiones y navegación real a Pasados → Ganadores. No toca la red. | — |
+| `ufc/datos/oddsapi.py` | Consenso multi-casa vía [The Odds API](https://the-odds-api.com) si hay `ODDS_API_KEY` en el entorno. Mediana desvigueada **excluyendo del consenso de cada lado a la casa que ofrece su mejor precio** (la referencia no puede contener el precio que juzga), descartando precios stale y devolviendo la dispersión entre casas como incertidumbre, no como ventaja. `valor()` da el EV con y sin descontar esa dispersión. Sin key devuelve `{}` y la app sigue igual. | `data/odds_hist.csv` |
+| `ufc/modelo/devig.py` | `python -m ufc.modelo.devig`. Los cuatro métodos de desvigueo (proporcional, power, Shin, odds-ratio) resueltos por bisección, y el CLI que mide cuál gana contra el resultado real, global y por tramo de favorito. Medido: gana **power**, los otros tres se descartan con el IC95% entero arriba de cero. `predict._desvig` delega acá. | — |
+| `ufc/modelo/apuesta.py` | La capa de decisión, en funciones puras: `ev`, `break_even`, `p_conservadora` (cota inferior), `kelly`, `stake` (Kelly fraccional con tope), `crecimiento` (log-growth, lo que Kelly maximiza de verdad), `riesgo_de_ruina`, `exposicion`, `ev_combinada`, `dependencia_necesaria` y `n_para_detectar` — la cuenta que explica por qué el criterio del proyecto es el CLV y no el ROI. | — |
+| `ufc/modelo/pool.py` | `python -m ufc.modelo.pool`. Pool logit modelo+mercado con los pesos ajustados prequencialmente y sin intercepto (conserva `p(A,B) + p(B,A) = 1`). Es el estimador de mínima varianza para “¿el modelo aporta algo sobre el precio?”. Medido: **no concluyente** contra el mercado solo. | — |
+| `ufc/modelo/gate.py` + `config/gate.json` | La regla de apuesta **preregistrada** y el código que la evalúa contra el CLV real del ledger. `estado()` devuelve autorizado/motivo/n/IC y cuánto falta. `predict.apuestas_automaticas()` se deriva de acá en vez de ser una constante: misma respuesta, pero auditable y refutable. | — |
+| `ufc/registro/banca.py` | La banca declarada, aparte de `apuestas.csv` porque cambia con depósitos y retiros, no con cada apuesta. Es el denominador de todo staking: sin banca, un importe es un número y no una decisión de riesgo. | `data/banca.json` |
+| `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable, declara la banca, muestra el stake que correspondería y el estado del gate, y expone la matemática real de una combinada; **Seguimiento** conserva separado el forward test hipotético con el CLV y su IC95%; **Backtest** muestra la grilla de umbrales, el bankroll, el staking, el drawdown y los segmentos que produce `ufc/modelo/backtest.py`. Cartelera y Matchup mantienen el detalle del modelo y mercado. | — |
+| `test_app.py` | `python test_app.py`. Además de simetría, fuentes, ledger y UI, verifica taxonomía/settlement, formatos antiguos, bootstrap clusterizado, manifiesto con hashes, no-bet por defecto, auditoría de revisiones y navegación real a Pasados → Ganadores. `check_devig` (los cuatro métodos suman 1 y son antisimétricos), `check_staking` (Kelly contra valores a mano, el máximo del crecimiento cae exactamente en `f*`, la ruina es monótona en la fracción, el vig se compone en la combinada), `check_pool` (antisimetría exacta y piso en el mercado) y `check_gate` (cerrado sin muestra; abre solo con IC limpio **y** el `n` preregistrado). No toca la red. | — |
 
 ### De dónde salen las peleas que todavía no ocurrieron
 
@@ -405,6 +432,125 @@ congelada contra los ticks de `betano_hist.csv`.
 Y esas cuotas históricas son de cierre o consenso, mientras que la app congela en apertura
 en una sola casa: el vig mediano del archivo es 3.70% contra 5.88% de Betano en vivo. El
 backtest acota la expectativa, no reproduce el juego que juega la app.
+
+## De la probabilidad al dinero
+
+Documento completo: **[`docs/consultoria-apuestas.md`](docs/consultoria-apuestas.md)**.
+
+Todo lo de arriba mide la **probabilidad**. Esta sección es lo que hace falta para que una
+probabilidad se convierta en plata, que es un problema distinto y hasta ahora no estaba
+implementado: no había staking, ni banca, ni cota inferior de EV, ni test estadístico
+sobre el CLV, ni una regla que dijera cuándo se puede apostar.
+
+### La cuenta que reorganiza el proyecto
+
+Una apuesta flat a cuota ~2.00 tiene desviación `σ = q·√(p(1−p)) ≈ 1.0`. Para distinguir
+una media de cero con potencia 80%: `n = ((1.96 + 0.84)·σ/e)²`.
+
+| detectar | σ | apuestas |
+|---|---|---|
+| ROI de +2% | 1.00 | **19.623** |
+| ROI de +5% | 1.00 | 3.140 |
+| **CLV medio de +2%** | **0.04** | **32** |
+
+A ~500 apuestas por año, verificar un ROI del 2% son **cuarenta años**. Por eso el
+criterio de este proyecto es el CLV y no el ROI: no por elegante, porque es el único que
+converge en tiempo humano. Está en `apuesta.n_para_detectar` y ahora aparece como columna
+en la grilla del backtest — los umbrales con el ROI menos malo son justo los que más lejos
+están de poder concluir algo.
+
+### Desvigueo: los cuatro métodos, medidos
+
+`1/cuota` no es una probabilidad. Cómo se reparte el margen mueve 1–2 puntos justo en el
+rango de favoritos, que es donde se decide el EV. Sobre 6901 peleas con resultado:
+
+| método | log loss | vs power | veredicto |
+|---|---|---|---|
+| **power** | **0.6075** | — | **campeón** |
+| odds_ratio | 0.6077 | +0.0002 [+0.0000, +0.0004] | se descarta |
+| Shin | 0.6078 | +0.0003 [+0.0000, +0.0005] | se descarta |
+| proporcional | 0.6084 | +0.0009 [+0.0003, +0.0015] | se descarta |
+
+Power se queda, ahora por evidencia. Su ventaja vive entera en los favoritos de >75%
+(0.4482 contra 0.4519 del proporcional). `python -m ufc.modelo.devig`.
+
+### El modelo no aporta sobre el precio, y ahora está cerrado
+
+El modelo está comprimido hacia 0.5 contra el mercado, y como `EV ≈ p_modelo/p_mercado −
+1`, esa compresión sola pone al underdog arriba en todas las peleas. La herramienta
+correcta no es un calibrador sino un **pool logit** de dos parámetros,
+`logit(p) = w_mkt·logit(p_mkt) + w_mod·logit(p_mod)`, sin intercepto (conserva la
+antisimetría) y prequencial:
+
+| | log loss |
+|---|---|
+| modelo solo | 0.6608 |
+| **mercado solo** | **0.6109** |
+| pool (w_mkt 0.970, w_mod 0.214) | 0.6106 |
+
+**pool vs mercado: −0.0003, IC95% [−0.0018, +0.0014] — no concluyente.** El resultado
+previo (odds como feature 29 del HistGB) admitía la excusa de la varianza; un pool de dos
+parámetros es el estimador de mínima varianza para la misma pregunta y no encuentra nada.
+**El EV tiene que venir del precio, no del modelo.** `python -m ufc.modelo.pool`.
+
+### Staking: no crea ventaja, decide la supervivencia
+
+Las **mismas** apuestas del backtest, banca inicial 100:
+
+| staking | banca final | peor caída | manda el tope | P(perder la mitad) |
+|---|---|---|---|---|
+| flat 1 unidad | **−261,72** | −394,0 u | — | — |
+| ¼ Kelly | 28,07 | −74,9% | 85% | 0,8% |
+| ½ Kelly | 29,59 | −73,7% | 90% | 12,5% |
+| Kelly completo | 30,04 | −73,3% | 93% | 50,0% |
+
+El flat de 1 unidad sobre una banca de 100 **no es conservador**: termina en −261,72
+porque un stake fijo es un porcentaje creciente de lo que va quedando. Y las tres
+fracciones de Kelly dan casi lo mismo porque el tope duro del 1% las corta en el 85–93% de
+las apuestas: con un modelo que cree tener +38% de EV, quien dimensiona no es Kelly, es el
+tope — y ésa es exactamente su defensa.
+
+### El gate: por qué la app no apuesta
+
+`config/gate.json` es la regla **preregistrada**, escrita antes de mirar los resultados:
+probabilidad de consenso multi-casa, decidir sobre la cota inferior, mejor precio
+ejecutable, EV mínimo 2%, sin combinadas, ¼ Kelly con tope 1% por apuesta y 3% por evento.
+Para abrirse pide **100 apuestas con el IC95% del CLV económico por encima de cero**.
+
+`ufc/modelo/gate.py` la evalúa contra el ledger real. `predict.APUESTAS_AUTOMATICAS` dejó
+de ser una constante y pasó a ser `predict.apuestas_automaticas()`: da la misma respuesta
+—no— pero con motivo, `n` y cuánto falta. Una constante no se puede refutar.
+
+Estado hoy: 4 lados seguidos con cierre, CLV económico **−14,0%** IC95% [−24,1%, −9,3%],
+0 de 4 le ganaron al cierre. No prueba nada con n=4, y el gate lo dice así.
+
+### CLV económico, y un bug que lo contaminaba
+
+El `clv` viejo compara dos cuotas. El nuevo `ev_al_cierre = p_justa_del_cierre × cuota_tomada − 1`
+es el mismo número en unidades económicas, que es lo que se compara contra cero, y va con
+IC95% bootstrap clusterizado por evento.
+
+Además: el "cierre" se elegía con todo tick anterior a `fecha_evento + 1 día`, que puede
+colar cuotas **en vivo** o posteriores al combate. ESPN manda la hora UTC de inicio y
+`cartelera.py` la descartaba con `[:10]`. Ahora se conserva (`inicio_utc`, columna
+aditiva) y el corte es estricto, con fallback a la regla vieja para las filas ya
+registradas.
+
+### Mejor precio multi-casa: la única vía que no exige ganarle a nadie
+
+`oddsapi.py` toma el consenso desvigueado de varias casas y busca dónde una paga por
+encima. Tres correcciones que deciden si eso es ventaja o espejismo:
+
+- **La casa del mejor precio no entra al consenso de ese lado** (independencia: la
+  referencia no puede contener el precio que juzga). Ojo con la dirección: excluirla
+  **sube** el EV medido, no lo baja.
+- **La dispersión entre casas se descuenta** (`apuesta.p_conservadora`). Ésta sí es la
+  defensa contra el espejismo: tomar el máximo de N precios da EV positivo con frecuencia
+  aunque los precios sean puro ruido alrededor de la misma probabilidad.
+- **Precios stale afuera**: una casa que no actualiza hace 12 horas no está cotizando.
+
+`data/odds_hist.csv` archiva cada tick por casa, append-only. Es dato irreproducible hacia
+atrás — el motivo por el que el CLV histórico no existe hoy.
 
 ## Cómo suele terminar la pelea
 
