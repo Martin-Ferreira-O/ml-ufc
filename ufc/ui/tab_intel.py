@@ -153,6 +153,7 @@ def render():
     total = len(checks)
     evidencias = sum(x["evidence_count"] for x in checks)
     profiles = comunes.intel_perfiles(tuple(x["fighter"] for x in checks))
+    retratos = comunes.retratos(tuple(x["fighter"] for x in checks))
     covered = sum(any(p.get("confidence") == "official"
                       for p in profiles[x["fighter"]]) for x in checks)
     with st.container(horizontal=True):
@@ -176,4 +177,5 @@ def render():
                                   "Ningún peleador tiene alerta en esta revisión.")
     visibles = [c for c in checks if not solo_alertas or (c["score"] or 0) <= -2]
     for check in visibles:
-        comunes.intel_tarjeta(check, profiles[check["fighter"]])
+        comunes.intel_tarjeta(check, profiles[check["fighter"]],
+                              foto=retratos.get(check["fighter"]))

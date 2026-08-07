@@ -10,3 +10,6 @@ RAIZ = pathlib.Path(__file__).resolve().parent.parent
 DATOS = RAIZ / "data"
 RAW = DATOS / "raw"
 MODELO = DATOS / "model.pkl"
+# Las fotos van fuera de `data/` porque Streamlit solo sirve archivos desde `static/`
+# junto al script principal, y el nombre de esa carpeta lo elige Streamlit, no nosotros.
+FOTOS = RAIZ / "static" / "fotos"

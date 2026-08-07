@@ -1,4 +1,5 @@
 data/
+static/
 .venv/
 __pycache__/
 .env

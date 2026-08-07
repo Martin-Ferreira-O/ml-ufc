@@ -157,7 +157,7 @@ def _intel(evento):
     return checks, perfiles
 
 
-def _detalle(pelea, fila, suyos, perfiles):
+def _detalle(pelea, fila, suyos, perfiles, retratos):
     """El voto humano y el contexto de la pelea, plegados: en una cartelera numerada son
     catorce peleas y dos informes por pelea."""
     with st.expander("Picks e inteligencia", icon=":material/how_to_vote:"):
@@ -167,7 +167,8 @@ def _detalle(pelea, fila, suyos, perfiles):
             st.caption("Ningún predictor cargó esta pelea todavía.")
         for lado, check in suyos:
             comunes.intel_tarjeta(check, perfiles[check["fighter"]],
-                                  titulo=pelea[lado], evidencias=False)
+                                  titulo=pelea[lado], evidencias=False,
+                                  foto=retratos.get(pelea[lado]))
 
 
 def _visible(pelea, busqueda, solo_cuota, cuotas):
@@ -228,12 +229,18 @@ def render(modelo, estado, pagina_predictores=None):
                                preds, cuotas_de)
     por_orden = {int(f.orden): f for f in rank.itertuples()}
     checks, perfiles = _intel(evento)
+    # Una sola pasada para toda la cartelera: bajar por pelea serian catorce tandas de
+    # requests y catorce spinners.
+    retratos = comunes.retratos(tuple(p[lado] for p in evento["peleas"]
+                                      for lado in ("a", "b")))
     # Si no hay ninguna, el motivo es el evento entero, no cada pelea: decirlo una
     # vez evita que parezca que el matcheo falló pelea por pelea.
     if tabla and not any(cuotas_de):
         st.info("Betano todavía no abrió mercado para este evento — lo hace unos días "
                 "antes. Va sin cuotas ni nivel de coincidencia.",
                 icon=":material/storefront:")
+
+    comunes.cartel(evento, retratos, preds)
 
     # Filtro solo de pantalla: una cartelera numerada tiene catorce peleas y casi siempre
     # se entra buscando una sola. No toca ningun calculo ni el registro del ledger.
@@ -308,7 +315,9 @@ def render(modelo, estado, pagina_predictores=None):
                 st.info(f"{r['error']} — el modelo no puede predecir un debut.",
                         icon=":material/person_search:")
             else:
-                comunes.resultado(pelea["a"], pelea["b"], r, cuotas)
+                comunes.resultado(pelea["a"], pelea["b"], r, cuotas,
+                                  fotos=(retratos.get(pelea["a"]),
+                                         retratos.get(pelea["b"])))
 
             # Cuando no hay ni una pick ni un informe no se dibuja nada: una cartelera a
             # dos meses no tiene ninguna de las dos cosas y serian catorce filas vacias.
@@ -329,7 +338,7 @@ def render(modelo, estado, pagina_predictores=None):
                     st.badge(f"{pelea[lado]} {comunes.intel_etiqueta(check['score'])}",
                              color=comunes.intel_color(check["score"]),
                              icon=":material/manage_search:")
-            _detalle(pelea, fila, suyos, perfiles)
+            _detalle(pelea, fila, suyos, perfiles, retratos)
 
     if not mostradas:
         st.info("Ninguna pelea de esta cartelera coincide con el filtro.",

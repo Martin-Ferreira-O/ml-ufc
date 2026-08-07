@@ -1,3 +1,10 @@
+# Las fotos de los peleadores se sirven como archivos desde `static/` y no en base64:
+# un <img src="app/static/fotos/x.png"> lo cachea el browser por URL, mientras que un
+# data-uri de 400 KB vuelve a viajar en CADA rerun — y un rerun es cualquier tecla en el
+# buscador de la cartelera.
+[server]
+enableStaticServing = true
+
 # Tema "Fight Night". Sigue fijo en oscuro a proposito: es una app que se mira de noche,
 # la vispera de un evento, y el toggle claro/oscuro solo aparece si estan definidas
 # [theme.light] y [theme.dark] las dos.

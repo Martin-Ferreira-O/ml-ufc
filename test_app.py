@@ -648,7 +648,7 @@ def check_app():
     from streamlit.testing.v1 import AppTest
 
     from ufc.registro import apuestas, ledger, predictores
-    from ufc.ui import tab_cartelera
+    from ufc.ui import comunes, tab_cartelera
 
     cartelera_dos = copy.deepcopy(CARTELERA["events"][0])
     cartelera_dos["name"] = "UFC Prueba 2"
@@ -661,6 +661,12 @@ def check_app():
     cartelera.anteriores = lambda *a, **k: [historico]
     betano.cuotas = lambda: betano._parsear(BETANO)                     # sin red
     oddsapi.cuotas = lambda: oddsapi._parsear(ODDSAPI)                  # sin red
+    # Se parchea `comunes.retratos` y no `fotos.sincronizar`: el primero esta cacheado
+    # con st.cache_data y ese cache sobrevive entre runs de AppTest, asi que parchear
+    # abajo no se veria. Solo el primero con foto, para cubrir tambien el monograma.
+    comunes.retratos = lambda peleadores: {                             # sin red
+        n: ("app/static/fotos/prueba.png" if i == 0 else None)
+        for i, n in enumerate(peleadores)}
     tmp = pathlib.Path(tempfile.mkdtemp())
     ledger.LEDGER = tmp / "ledger.csv"                                  # sin ensuciar
     apuestas.APUESTAS, apuestas.DETALLE = tmp / "a.csv", tmp / "ad.csv"
@@ -738,6 +744,20 @@ def check_app():
                                        default_timeout=120).run()
         assert not pagina.exception, (titulo, [e.value for e in pagina.exception])
         assert titulo in [t.value for t in pagina.title], (titulo, [t.value for t in pagina.title])
+
+    # El cartel del evento dibuja la foto del que la tiene y las iniciales del que no.
+    # Las dos salen por st.html, que es donde hay que buscarlas.
+    cartel = AppTest.from_function(_render_page,
+                                   args=("ufc.ui.tab_cartelera", (modelo, estado)),
+                                   default_timeout=120).run()
+    assert not cartel.exception, [e.value for e in cartel.exception]
+    marca = "".join(h.body for h in cartel.get("html"))
+    assert 'src="app/static/fotos/prueba.png"' in marca, "el cartel no dibujo la foto"
+    # El segundo peleador del cartel se queda sin foto: tiene que caer al monograma, no
+    # desaparecer. Sin esto, un fallo de la fuente se vuelve una cartelera sin caras.
+    sin_foto = CARTELERA["events"][0]["competitions"][-1]["competitors"][1]
+    sin_foto = sin_foto["athlete"]["displayName"]
+    assert f'aria-label="{sin_foto}"' in marca, f"{sin_foto} se quedo sin monograma"
 
     # Abrir la carga historica renderiza un selector de dos lados por pelea y sus
     # detalles opcionales; esto cubre APIs que la comparativa vacia no ejecuta.

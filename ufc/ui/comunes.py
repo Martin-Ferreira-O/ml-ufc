@@ -14,7 +14,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from ufc.datos import betano, cartelera, oddsapi
+from ufc.datos import betano, cartelera, fotos, oddsapi
 from ufc.intel import identities, store
 from ufc.modelo import predict
 from ufc.registro import predictores
@@ -182,6 +182,19 @@ def intel_perfiles(peleadores):
     return {peleador: identities.profiles_for(peleador) for peleador in peleadores}
 
 
+@st.cache_data(ttl=86400, show_spinner="Buscando las fotos…")
+def retratos(peleadores):
+    """peleador -> URL de su foto servida por Streamlit, o None si no tiene.
+
+    La tupla de nombres es la clave del cache, asi que una pagina entera se resuelve en
+    una sola pasada. Despues no vuelve a costar nada: la foto ya esta en disco y el
+    browser la cachea por URL. El TTL de un dia es para el debutante que la UFC firma y
+    recien ahi tiene ficha.
+    """
+    return {n: f"app/static/fotos/{f.name}" if f else None
+            for n, f in fotos.sincronizar(peleadores).items()}
+
+
 
 def cuenta_regresiva(fecha):
     """Cuantos dias faltan, en palabras. Es lo primero que uno mira de una cartelera."""
@@ -212,20 +225,162 @@ def encabezado(titulo, bajada, seccion=None, chips=()):
                 st.badge(texto, color=color, icon=icono)
 
 
-def enfrentamiento(a, p_a, b, p_b, pie=None):
+def _monograma(nombre, color, lado):
+    """Las iniciales, para el que no tiene foto en ninguna de las dos fuentes: el
+    debutante del Contender Series no es roster todavia ni tiene ficha en Sherdog."""
+    iniciales = "".join(p[0] for p in nombre.split()[:2]).upper() or "?"
+    # `role`/`aria-label` porque dos iniciales sueltas no le dicen nada a un lector de
+    # pantalla, mientras que la foto de al lado si tiene su `alt` con el nombre entero.
+    return (f'<div role="img" aria-label="{html.escape(nombre)}" '
+            f'style="width:{lado}px;height:{lado}px;border-radius:50%;flex:none;'
+            f'display:flex;align-items:center;justify-content:center;'
+            f'background:{color}1F;border:1px solid {color}55;color:{color};'
+            f'font:600 {max(lado // 3, 11)}px \'Barlow Condensed\',sans-serif">'
+            f'{html.escape(iniciales)}</div>')
+
+
+def retrato(url, nombre, color, alto=150):
+    """El recorte de cuerpo entero de ufc.com, con su fondo transparente.
+
+    Devuelve HTML y no dibuja: quien lo llama lo compone adentro de un st.html mas
+    grande, igual que ya hace `enfrentamiento` con la barra.
+    """
+    if not url:
+        return _monograma(nombre, color, alto * 3 // 5)
+    # El recorte de la UFC termina a media pierna con un corte recto. La mascara lo
+    # desvanece, que es lo que lo hace leer como cartel y no como una foto pegada.
+    mascara = "linear-gradient(#000 76%,transparent)"
+    return (f'<img src="{url}" alt="{html.escape(nombre)}" loading="lazy" '
+            f'style="height:{alto}px;width:auto;max-width:100%;object-fit:contain;'
+            f'-webkit-mask-image:{mascara};mask-image:{mascara};'
+            f'filter:drop-shadow(0 8px 20px {color}4D)">')
+
+
+def avatar(url, nombre, color, lado=52):
+    """La cabeza en circulo, recortada por CSS del mismo archivo de cuerpo entero.
+
+    Un solo archivo por peleador sirve para el cartel y para el avatar: `object-position:
+    center top` deja la cabeza encuadrada en los recortes de ufc.com, que son 138 de las
+    145 fotos. Las 7 de Sherdog son fotos de pesaje y quedan mas lejos, pero se entienden.
+    """
+    if not url:
+        return _monograma(nombre, color, lado)
+    return (f'<img src="{url}" alt="{html.escape(nombre)}" loading="lazy" '
+            f'style="width:{lado}px;height:{lado}px;flex:none;border-radius:50%;'
+            f'object-fit:cover;object-position:center top;background:{color}1F;'
+            f'border:1px solid {color}55">')
+
+
+def cartel(evento, retratos_de, preds):
+    """El cartel del evento, arriba de todo: el main event con los dos cuerpos enteros y
+    el resto de la cartelera en filas.
+
+    Es lo unico de la pagina que no es analisis — el analisis sigue abajo, sin cambios.
+    Un solo st.html con estilos inline, misma regla que `enfrentamiento`: la app no
+    inyecta CSS global.
+    """
+    peleas = evento["peleas"]
+    if not peleas:
+        return
+    esc = html.escape
+    r = preds[0] if preds else {}
+    titulo = "font:700 15px 'Barlow Condensed',sans-serif;letter-spacing:.06em"
+
+    barra = ""
+    # `r` viene vacio si no hay predicciones y trae "error" en un debut: en los dos casos
+    # el cartel va sin barra, no sin cartel.
+    if r and "error" not in r:
+        izq = min(max(round(r["p_a"] * 100), 3), 97)
+        barra = (
+            f'<div style="display:flex;gap:3px;height:8px;border-radius:999px;'
+            f'overflow:hidden;margin:10px auto 6px;max-width:420px">'
+            f'<div style="width:{izq}%;background:{COLOR_A};border-radius:999px"></div>'
+            f'<div style="width:{100 - izq}%;background:{COLOR_B};border-radius:999px">'
+            f'</div></div>'
+            f'<div style="display:flex;justify-content:space-between;max-width:420px;'
+            f'margin:0 auto;font:700 20px \'Barlow Condensed\',sans-serif">'
+            f'<span style="color:{COLOR_A}">{r["p_a"]:.0%}</span>'
+            f'<span style="font:400 11px Inter,sans-serif;color:#8A94A6">'
+            f'probabilidad del modelo</span>'
+            f'<span style="color:{COLOR_B}">{r["p_b"]:.0%}</span></div>')
+
+    # El main event: los dos cuerpos enteros enfrentados. `flex-wrap` para que en pantalla
+    # angosta se apilen en vez de encogerse hasta no verse.
+    main = peleas[0]
+    cabeza = (
+        f'<div style="display:flex;flex-wrap:wrap;align-items:flex-end;'
+        f'justify-content:center;gap:12px">'
+        f'<div style="flex:1 1 140px;display:flex;justify-content:flex-end">'
+        f'{retrato(retratos_de.get(main["a"]), main["a"], COLOR_A, 190)}</div>'
+        f'<span style="font:700 22px \'Barlow Condensed\',sans-serif;color:#8A94A6;'
+        f'letter-spacing:.2em;padding-bottom:60px">VS</span>'
+        f'<div style="flex:1 1 140px;display:flex;justify-content:flex-start">'
+        f'{retrato(retratos_de.get(main["b"]), main["b"], COLOR_B, 190)}</div></div>'
+        f'<div style="display:flex;justify-content:space-between;gap:12px;'
+        f'margin-top:6px;font:700 26px \'Barlow Condensed\',sans-serif;'
+        f'letter-spacing:.02em;text-transform:uppercase">'
+        f'<span style="color:{COLOR_A}">{esc(main["a"])}</span>'
+        f'<span style="color:{COLOR_B};text-align:right">{esc(main["b"])}</span></div>'
+        + barra +
+        (f'<div style="text-align:center;{titulo};color:#8A94A6;margin-top:8px">'
+         f'{esc(main["peso"])}</div>' if main["peso"] else ""))
+
+    filas = "".join(
+        f'<div style="display:flex;align-items:center;gap:10px;padding:9px 0;'
+        f'border-top:1px solid #222A38">'
+        f'{avatar(retratos_de.get(p["a"]), p["a"], COLOR_A, 38)}'
+        f'<span style="flex:1;min-width:0;{titulo};text-transform:uppercase;'
+        f'color:#E7EAF0">{esc(p["a"])}</span>'
+        f'<span style="width:110px;text-align:center;font:600 10px Inter,sans-serif;'
+        f'color:#8A94A6;letter-spacing:.14em">VS<br>'
+        f'<span style="font-size:9px;letter-spacing:.06em;opacity:.75">'
+        f'{esc(p["peso"] or "")}</span></span>'
+        f'<span style="flex:1;min-width:0;{titulo};text-transform:uppercase;'
+        f'color:#E7EAF0;text-align:right">{esc(p["b"])}</span>'
+        f'{avatar(retratos_de.get(p["b"]), p["b"], COLOR_B, 38)}'
+        f'</div>' for p in peleas[1:])
+
+    falta = cuenta_regresiva(evento["fecha"])
+    st.html(
+        f'<div style="border:1px solid #222A38;border-radius:14px;padding:18px 20px 14px;'
+        f'margin-bottom:14px;background:radial-gradient(120% 90% at 0% 0%,{COLOR_A}1A,'
+        f'transparent 55%),radial-gradient(120% 90% at 100% 0%,{COLOR_B}1A,transparent '
+        f'55%),#0B0E14">'
+        f'<div style="text-align:center;font:700 11px Inter,sans-serif;color:#8A94A6;'
+        f'letter-spacing:.22em;text-transform:uppercase">{esc(evento["evento"])}</div>'
+        f'<div style="text-align:center;font:400 12px Inter,sans-serif;color:#8A94A6;'
+        f'margin:2px 0 10px">{esc(str(evento["fecha"]))}'
+        f'{" · " + esc(falta) if falta else ""}</div>'
+        f'{cabeza}'
+        f'<div style="margin-top:14px">{filas}</div>'
+        f'</div>')
+
+
+def enfrentamiento(a, p_a, b, p_b, pie=None, fotos=None):
     """Una sola barra partida con las dos esquinas, en vez de dos barras apiladas.
 
     Es lo unico del rediseño que no existe como elemento nativo: `st.progress` dibuja
     una barra por valor y dos barras seguidas se leen como dos peleas distintas, no como
     los dos lados de la misma. Va todo con estilos inline para no inyectar CSS global.
+
+    `fotos` es opcional y va al final a proposito: sin el, esto sale igual que siempre,
+    que es lo que necesita Matchup — ahi se comparan dos peleadores cualesquiera y la
+    pagina no baja fotos.
     """
     izq = min(max(round(p_a * 100), 3), 97)  # los extremos igual tienen que verse
     nom = "font:600 15px Inter,sans-serif;letter-spacing:.01em"
     pct = "font:700 22px 'Barlow Condensed',sans-serif;line-height:1"
     fila = "display:flex;align-items:baseline;justify-content:space-between;gap:12px"
+    # Sin "VS" entre las fotos: la fila de nombres que va justo abajo ya lo trae.
+    caras = (f'<div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:6px">'
+             f'<div style="flex:1;display:flex;justify-content:flex-start">'
+             f'{retrato(fotos[0], a, COLOR_A)}</div>'
+             f'<div style="flex:1;display:flex;justify-content:flex-end">'
+             f'{retrato(fotos[1], b, COLOR_B)}</div></div>') if fotos else ""
     st.html(
         f'<div style="margin:2px 0 6px" role="img" aria-label="'
         f'{html.escape(a)} {p_a:.0%}, {html.escape(b)} {p_b:.0%}">'
+        f'{caras}'
         f'<div style="{fila}">'
         f'<span style="{nom};color:{COLOR_A}">{html.escape(a)}</span>'
         f'<span style="font:600 11px Inter,sans-serif;color:#8A94A6;'
@@ -245,11 +400,11 @@ def enfrentamiento(a, p_a, b, p_b, pie=None):
         f'</div></div>')
 
 
-def resultado(a, b, r, cuotas):
+def resultado(a, b, r, cuotas, fotos=None):
     """Las probabilidades de una pelea. Igual en el matchup suelto y en la cartelera."""
     if "aviso" in r:
         st.warning(f"**Historial mezclado.** {r['aviso']}", icon=":material/merge:")
-    enfrentamiento(a, r["p_a"], b, r["p_b"], pie="probabilidad del modelo")
+    enfrentamiento(a, r["p_a"], b, r["p_b"], pie="probabilidad del modelo", fotos=fotos)
     with st.container(horizontal=True):
         st.metric("Modelo", f"{r['p_a']:.1%}", border=True,
                   help="No usa la cuota. Es la opinión independiente.")
@@ -354,7 +509,7 @@ def intel_etiqueta(score):
     return f"{score:+d} · sin impacto material"
 
 
-def intel_tarjeta(check, perfiles, titulo=None, evidencias=True):
+def intel_tarjeta(check, perfiles, titulo=None, evidencias=True, foto=None):
     """El informe del bot para un peleador. Igual en Inteligencia y en Cartelera.
 
     `evidencias=False` omite el desplegable de fuentes: Streamlit no anida expanders y
@@ -366,7 +521,16 @@ def intel_tarjeta(check, perfiles, titulo=None, evidencias=True):
     with st.container(border=True):
         with st.container(horizontal=True, horizontal_alignment="distribute",
                           vertical_alignment="center"):
-            st.subheader(titulo or f"{check['fighter']} vs {check['opponent']}")
+            with st.container(horizontal=True, width="content",
+                              vertical_alignment="center"):
+                # La foto va pegada al nombre del encabezado y no adentro del resumen:
+                # ahi el nombre es `check["fighter"]`, exacto y estructurado, mientras que
+                # el resumen es prosa del LLM donde el nombre puede venir de cualquier
+                # forma (apodo, solo apellido, mal escrito).
+                # COLOR_A fijo y no el color del score: `intel_color` devuelve nombres de
+                # badge de Streamlit ("red"), no hex, y `avatar` los usa como CSS.
+                st.html(avatar(foto, check["fighter"], COLOR_A, 44))
+                st.subheader(titulo or f"{check['fighter']} vs {check['opponent']}")
             st.badge(intel_etiqueta(score), color=color,
                      icon=":material/report:" if color == "red"
                      else ":material/fact_check:")
