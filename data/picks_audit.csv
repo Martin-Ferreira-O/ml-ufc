@@ -1,0 +1,310 @@
+ts_utc,accion,revisor,predictor,evento,fecha_evento,a,b,pick,metodo,round,confianza,origen,revisado
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,,0.78,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,0.6,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,0.78,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,a,ko,,0.51,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,,0.73,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,ko,,0.55,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,0.62,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,0.81,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,dec,,0.52,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,ko,,0.58,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,ko,,0.73,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,sub,,0.7,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,0.65,manual,True
+2026-08-02T20:55:16.742375+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,b,dec,,0.65,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,1.0,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,sub,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,1.0,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,b,dec,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,dec,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,sub,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,ko,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,,manual,True
+2026-08-02T20:57:19.291086+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,dec,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,1.0,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,sub,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,1.0,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,dec,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,dec,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,sub,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,ko,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,,manual,True
+2026-08-02T20:58:25.848274+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,dec,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,sub,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,dec,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,dec,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,sub,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,ko,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,,manual,True
+2026-08-02T20:58:28.021055+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,dec,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,sub,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,dec,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,dec,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,sub,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,ko,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,,manual,True
+2026-08-02T20:58:28.351318+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,dec,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,dec,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,ko,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,sub,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,ko,1.0,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,a,,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,a,dec,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,ko,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,dec,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,dec,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,sub,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,ko,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,ko,,,manual,True
+2026-08-02T20:58:28.485505+00:00,pick_revised,usuario_app,CagePropHet,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,dec,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Ankalaev,Bogdan Guskov,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Steve Erceg,Ramazan Temirov,b,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Zaynukov,Damian Rzepecki,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Rizvan Kuniev,Tyrell Fortune,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Abubakar Vagaev,Saygid Izagakhmaev,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Valter Walker,Thomas Petersen,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Dustin Jacoby,Muhammad Saidov,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Santiago Ponzinibbio,Sam Patterson,b,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Ismael Bonfim,Axel Sola,b,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Tuchalov,Brendson Ribeiro,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Nurullo Aliev,Mike Davis,a,,,,manual,True
+2026-08-02T23:37:11.738712+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Cody Gibson,Abdul Hussein,b,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Ankalaev,Bogdan Guskov,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Steve Erceg,Ramazan Temirov,b,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Zaynukov,Damian Rzepecki,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Rizvan Kuniev,Tyrell Fortune,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Abubakar Vagaev,Saygid Izagakhmaev,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Valter Walker,Thomas Petersen,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Dustin Jacoby,Muhammad Saidov,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Santiago Ponzinibbio,Sam Patterson,b,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Ismael Bonfim,Axel Sola,b,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Tuchalov,Brendson Ribeiro,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Nurullo Aliev,Mike Davis,a,,,,manual,True
+2026-08-02T23:37:39.438780+00:00,pick_revised,usuario_app,FaceOff MMA,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Cody Gibson,Abdul Hussein,b,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Dricus Du Plessis,Kamaru Usman,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Jared Cannonier,Christian Leroy Duncan,b,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Chase Hooper,Mitch Ramirez,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Tabatha Ricci,Fatima Kline,b,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Tommy McMillen,Alberto Montes,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Austin Bashi,Jose Delgado,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Jean-Paul Lebosnoyani,Seokhyeon Ko,b,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Levi Rodrigues Jr.,Felipe Franco,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Ezra Elliott,Damien Anderson,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Alden Coria,Stewart Nicoll,a,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,RJ Harris,Alvin Hines,b,,,,manual,True
+2026-08-02T23:38:45.254900+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Du Plessis vs. Usman,2026-07-18,Anna Melisano,Dione Barbosa,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Conor McGregor,Max Holloway,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Benoit Saint Denis,Paddy Pimblett,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Cory Sandhagen,Mario Bautista,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Brandon Royval,Lone'er Kavanagh,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,King Green,Terrance McKinney,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Nikita Krylov,Robert Whittaker,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Gable Steveson,Elisha Ellison,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Cody Garbrandt,Adrian Yanez,b,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Luke Riley,Kai Kamaka III,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Tracy Cortez,Wang Cong,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Damian Pinas,Cesar Almeida,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Farid Basharat,John Garza,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Ryan Gandra,Zach Reese,a,,,,manual,True
+2026-08-02T23:40:06.283671+00:00,pick_created,usuario_app,FaceOff MMA,UFC 329: McGregor vs. Holloway 2,2026-07-11,Alessandro Costa,Cody Durden,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Rafael Fiziev,Manuel Torres,b,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Shara Magomedov,Michel Pereira,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Nazim Sadykhov,Matheus Camilo,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Asu Almabayev,Charles Johnson,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Ikram Aliskerov,Brunno Ferreira,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Abus Magomedov,Michal Oleksiejczuk,b,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Farman Hasanov,Eric Nolan,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Abdul Rakhman Yakhyaev,Julius Walker,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Nursulton Ruziboev,Andrey Pulyaev,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Kaan Ofli,Javier Reyes,b,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Daniil Donchenko,Theodor Berggren,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Bekzat Almakhan,Jean Matsumoto,a,,,,manual,True
+2026-08-02T23:41:41.389234+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Fiziev vs. Torres,2026-06-27,Tahir Abdullayev,Jefferson Nascimento,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Manel Kape,Kyoji Horiguchi,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Ion Cutelaba,Navajo Stirling,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Hyder Amil,Christian Rodriguez,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Melsik Baghdasaryan,Murtazali Magomedov,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Vinicius Oliveira,Andre Fili,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Andre Lima,Kevin Borjas,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Bia Mesquita,Melissa Mullins,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Allan Nascimento,Mitch Raposo,a,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Gaston Bolanos,Michael Aswell Jr.,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Leon Shahbazyan,Levan Chokheli,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Karol Rosa,Luana Santos,b,,,,manual,True
+2026-08-03T00:02:23.703454+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Kape vs. Horiguchi,2026-06-20,Shane Collins,Otari Tanzilovi,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Ilia Topuria,Justin Gaethje,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Alex Pereira,Ciryl Gane,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Sean O'Malley,Aiemann Zahabi,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Josh Hokit,Derrick Lewis,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Mauricio Ruffy,Michael Chandler,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Bo Nickal,Kyle Daukaus,a,,,,manual,True
+2026-08-03T00:03:38.584987+00:00,pick_created,usuario_app,FaceOff MMA,UFC Freedom 250,2026-06-14,Diego Lopes,Steve Garcia,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Belal Muhammad,Gabriel Bonfim,b,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Brendan Allen,Edmen Shahbazyan,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Fares Ziam,Tom Nolan,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Bryce Mitchell,Santiago Luna,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Iwo Baraniewski,Junior Tafa,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Matt Schnell,Alessandro Costa,b,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Marcus McGhee,John Yannis,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Bruno Silva,Edgar Chairez,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Priscila Cachoeira,Chelsea Chandler,b,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Jordan Leavitt,Joanderson Brito,b,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Jeisla Chaves,Yuneisy Duben,a,,,,manual,True
+2026-08-03T00:04:35.838895+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Muhammad vs. Bonfim,2026-06-06,Ketlen Souza,Ariane Carnelossi,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Song Yadong,Deiveson Figueiredo,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Zhang Mingyang,Alonzo Menifield,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Sergei Pavlovich,Tallison Teixeira,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Kai Asakura,Cameron Smotherman,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Jake Matthews,Carlston Harris,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Alex Perez,Sumudaerji,b,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,YiSak Lee,Luis Felipe Dias,b,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Aoriqileng,Cody Haddon,b,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Rei Tsuruya,Luis Gurule,a,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Angela Hill,Xiong Jingnan,b,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Zhu Kangjie,Rodrigo Vera,b,,,,manual,True
+2026-08-03T00:06:26.483325+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Song vs. Figueiredo,2026-05-30,Loma Lookboonmee,Jaqueline Amorim,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Arnold Allen,Melquizael Costa,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Dooho Choi,Daniel Santos,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Malcolm Wellmaker,Juan Diaz,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Modestas Bukauskas,Christian Edwards,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Timmy Cuamba,Benardo Sopaj,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Nikolay Veretennikov,Khaos Williams,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Tuco Tokkos,Ivan Erslan,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Tommy Gantt,Artur Minev,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Ketlen Vieira,Jacqueline Cavalcanti,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Cody Brundage,Andre Petroski,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Alice Ardelean,Polyana Viana,a,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Daniel Barez,Luis Gurule,b,,,,manual,True
+2026-08-03T00:07:44.346661+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Allen vs. Costa,2026-05-16,Shauna Bannon,Nicolle Caliari,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Khamzat Chimaev,Sean Strickland,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Joshua Van,Tatsuro Taira,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Alexander Volkov,Waldo Cortes Acosta,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Sean Brady,Joaquin Buckley,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,King Green,Jeremy Stephens,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Ateba Gautier,Ozzy Diaz,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Joel Alvarez,Yaroslav Amosov,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Grant Dawson,Mateusz Rebecki,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Jim Miller,Jared Gordon,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Roman Kopylov,Marco Tulio,b,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Pat Sabatini,William Gomis,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Baisangur Susurkaev,Djorden Santos,a,,,,manual,True
+2026-08-03T00:21:36.230290+00:00,pick_created,usuario_app,FaceOff MMA,UFC 328: Chimaev vs. Strickland,2026-05-09,Clayton Carpenter,Jose Ochoa,b,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Ankalaev,Bogdan Guskov,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Steve Erceg,Ramazan Temirov,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Zaynukov,Damian Rzepecki,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Rizvan Kuniev,Tyrell Fortune,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Abubakar Vagaev,Saygid Izagakhmaev,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Valter Walker,Thomas Petersen,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Dustin Jacoby,Muhammad Saidov,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Santiago Ponzinibbio,Sam Patterson,b,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Ismael Bonfim,Axel Sola,b,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Tuchalov,Brendson Ribeiro,a,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Nurullo Aliev,Mike Davis,b,,,,manual,True
+2026-08-03T00:24:02.298453+00:00,pick_created,usuario_app,CagePropHet,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Cody Gibson,Abdul Hussein,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Gilbert Urbina,Vlasto Čepo,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Milos Janicic,Noah Gugnon,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Oban Elliott,Michael Oliveira,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Borislav Nikolic,Mark Vologdin,a,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Hailey Cowan,Nina Milošević,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Alexander Poppeck,Jovan Leka,b,,,,manual,True
+2026-08-03T01:48:12.032068+00:00,pick_revised,usuario_app,JuanCarlosUfc,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Stephanie Luciano,Marina Spasić,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Ankalaev,Bogdan Guskov,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Steve Erceg,Ramazan Temirov,b,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Zaynukov,Damian Rzepecki,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Rizvan Kuniev,Tyrell Fortune,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Abubakar Vagaev,Saygid Izagakhmaev,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Valter Walker,Thomas Petersen,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Dustin Jacoby,Muhammad Saidov,b,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Santiago Ponzinibbio,Sam Patterson,b,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Ismael Bonfim,Axel Sola,b,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Magomed Tuchalov,Brendson Ribeiro,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Nurullo Aliev,Mike Davis,a,,,,manual,True
+2026-08-03T01:52:33.019034+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Ankalaev vs. Guskov,2026-07-25,Cody Gibson,Abdul Hussein,b,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-03T18:16:19.196148+00:00,pick_created,usuario_app,fightcentraledits,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,a,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,a,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+2026-08-03T23:01:06.765152+00:00,pick_created,usuario_app,TheMMAMarv,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+2026-08-03T23:04:18.597155+00:00,pick_created,usuario_app,AidenPicks,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,a,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+2026-08-03T23:06:23.596403+00:00,pick_created,usuario_app,FrankFightClub,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,b,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,0.88,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,0.75,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,0.75,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Henrique da Silva Lopes,Louie Sutherland,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,b,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,,,,manual,True

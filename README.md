@@ -1,15 +1,63 @@
 # Predictor de peleas UFC
 
-Predice P(gana A) / P(gana B) para cualquier matchup de UFC y lo compara contra la
-cuota de la casa — la de Betano se busca sola para las peleas anunciadas. La idea es que
-sea una fuente de información más para decidir, no un detector automático de valor.
+[![Licencia: MIT](https://img.shields.io/badge/c%C3%B3digo-MIT-blue.svg)](LICENSE)
+[![Datos: CC BY 4.0](https://img.shields.io/badge/datos-CC%20BY%204.0-blue.svg)](LICENSE-DATA)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-3776ab.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/streamlit-app-ff4b4b.svg)](https://streamlit.io/)
+
+Predice P(gana A) / P(gana B) para cualquier matchup de UFC, lo compara contra la cuota
+de la casa — la de Betano se busca sola para las peleas anunciadas — y **congela cada
+predicción con fecha** para poder medirla después contra lo que pasó. La idea es que sea
+una fuente de información más para decidir, no un detector automático de valor.
+
+## Lo importante primero
+
+Un repo de predicción de peleas suele abrir con la accuracy y cerrar ahí. Este mide
+también lo otro, que es lo que importa si el número toca dinero:
+
+| | |
+|---|---|
+| Accuracy sobre 1029 peleas nunca vistas en entrenamiento | **64.8%** (moneda 50%, mayor Elo 55.9%) |
+| Log loss del modelo vs. la línea de la casa sin vig | 0.6561 vs **0.6107** — el mercado gana por 0.0453 |
+| ROI de apostar todo el EV positivo del modelo, out-of-sample | **−4.59%**, IC95% [−8.19%, −0.81%] |
+| Umbrales de ventaja (de 21 probados) cuyo IC95% de ROI supera cero | **ninguno** |
+
+**El mercado le gana al modelo, y por mucho.** Está medido, no estimado: donde el modelo
+más discrepa de la casa es justo donde peor rinde — en las 1679 peleas donde eligen
+ganadores distintos, la casa acierta 57.0% y el modelo 43.0%. Por eso la app **no genera
+candidatas de apuesta automáticas** y su default es "sin apuesta".
+
+Lo que sí sirve: 65% de acierto está en el techo de lo que logran los modelos públicos de
+UFC, la discrepancia con el mercado es una señal descriptiva útil, y el ledger acumula
+desde ahora las líneas de **apertura** que nadie guardaba — la única pregunta abierta que
+todavía puede dar valor. Todo el detalle, con intervalos de confianza, más abajo.
 
 ## Instalación
 
+Probado en Python 3.13. Sin GPU, sin Docker, corre local.
+
 ```sh
+git clone https://github.com/<usuario>/ml-ufc.git
+cd ml-ufc
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+El repo **no versiona el modelo ni los datos crudos** (ver [Qué versiona el
+repo](#qué-versiona-el-repo-y-qué-no)), así que un clon recién bajado necesita correr el
+pipeline una vez antes de levantar la app. Son un par de minutos:
+
+```sh
+.venv/bin/python -m ufc.datos.fetch      # descarga los CSVs de ufcstats (segundos)
+.venv/bin/python -m ufc.datos.wiki       # reemplazos y peso no dado
+.venv/bin/python -m ufc.datos.sherdog    # récord pre-UFC (la primera vez tarda: ~2700 fichas)
+.venv/bin/python -m ufc.modelo.features  # construye las features (~1 min)
+.venv/bin/python -m ufc.modelo.train     # entrena y evalúa (~1 min)
+.venv/bin/streamlit run app.py           # la app en http://localhost:8501
+```
+
+El botón **Actualizar y re-entrenar** de la sidebar corre ese mismo pipeline desde la app.
+Para verificar la instalación sin tocar la red: `.venv/bin/python test_app.py`.
 
 Credenciales opcionales: `ODDS_API_KEY` ([The Odds API](https://the-odds-api.com),
 consenso multi-casa), `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey),
@@ -143,6 +191,34 @@ ufc/
 
 Dónde va un cambio: fuente nueva → `ufc/datos/`; feature nueva → `ufc/modelo/features.py`;
 algo que se ve en pantalla → la `tab_*.py` de esa pestaña; una ruta nueva → `ufc/rutas.py`.
+
+## Qué versiona el repo, y qué no
+
+`data/` pesa ~490 MB en una instalación andando y casi todo eso es cache. El repo versiona
+solo **135 KB**: los seis archivos que el pipeline no puede reconstruir hacia atrás.
+
+| versionado | filas | por qué no se puede regenerar |
+|---|---|---|
+| `data/ledger.csv` | 16 | la predicción congelada al **primer avistaje** de la pelea, con la cuota de ese momento. Re-correrlo hoy daría otra cosa. |
+| `data/cartelera_hist.csv` | 104 | cuándo se vio anunciada cada pelea por primera vez. Es lo único que detecta un reemplazo tardío, y sólo se puede observar en vivo. |
+| `data/betano_hist.csv` | 754 | ticks de cuota apertura→cierre. Nadie publica este histórico: o lo guardás mientras pasa, o no existe. |
+| `data/picks.csv` + `_audit.csv` | 255 + 309 | picks públicos de 8 predictores de MMA, recopilados a mano, con audit log append-only. |
+| `data/resultados.csv` | 14 | ganadores cargados a mano. |
+
+Lo demás queda fuera de Git a propósito, y no sólo por tamaño:
+
+- **`data/raw/` (474 MB)** — estadísticas de ufcstats, odds históricas, HTML de Sherdog y
+  texto de Wikipedia. Material de terceros; lo baja `ufc.datos.fetch` y los scrapers
+  cachean por ficha, así que re-correrlos pide sólo lo nuevo.
+- **`data/features.csv`, `model.pkl`, `fighter_state.csv`, `oof.csv`, `backtest.json`** —
+  derivados deterministas del pipeline. Versionar un `.pkl` de 940 KB que cambia en cada
+  entrenamiento es basura en el historial.
+- **`data/intel.db` y los CSV de inteligencia** — resúmenes generados por un LLM sobre
+  noticias y feeds públicos de **personas identificables**. No se publican.
+- **`data/apuestas*.csv`** — apuestas con plata real, en CLP. Privado.
+- **`static/fotos/` (50 MB)** — fotos de peleadores de ufc.com y Sherdog, con derechos de
+  sus titulares. Las baja `ufc.datos.fotos`; la app funciona igual sin ellas.
+- **`.env` y `.streamlit/secrets.toml`** — credenciales. Hay `.example` de ambos.
 
 ## Qué hace cada módulo
 
@@ -511,3 +587,51 @@ IC95% que cruza cero y fue elegido a posteriori; la app no genera candidatas aut
 Un modelo bien calibrado te dice cuándo
 tenés razón, no cuándo cobrás — apostar favoritos claros no es gratis, el sesgo
 favorito-longshot hace que las cuotas bajas estén bien pagadas.
+
+## Descargo de responsabilidad
+
+Esto es un proyecto de investigación y aprendizaje. **No es asesoramiento financiero ni
+de apuestas.** La app no apuesta sola, no recomienda apostar y su default es "sin
+apuesta": todo lo que queda registrado lo confirma una persona.
+
+Está medido en este mismo repo que apostar las señales del modelo **pierde dinero**
+(−4.59% de ROI, IC95% enteramente bajo cero) y que ningún umbral de los 21 probados
+muestra ventaja. Cualquiera que use esto para apostar lo hace bajo su propia
+responsabilidad y arriesga plata que puede perder. Las apuestas son para mayores de edad
+y su legalidad depende de la jurisdicción. Si el juego dejó de ser un pasatiempo, buscá
+ayuda profesional.
+
+## Contribuir
+
+Issues y PRs bienvenidos. Dos condiciones que vienen del propio proyecto:
+
+- **`python test_app.py` tiene que pasar** (no toca la red).
+- **Una feature nueva se acepta con evidencia, no con intuición.** El protocolo es el
+  rolling-origin de 20 folds de `python -m ufc.modelo.train probar`, y el IC95% del delta
+  pareado no puede tocar cero. La sección [Por qué no sirve tocar los
+  hiperparámetros](#por-qué-no-sirve-tocar-los-hiperparámetros-ni-casi-nada-del-modelo)
+  explica por qué la vara es esa: con la ventana de datos que hay, un "mejora 0.003" es
+  ruido de 1.1σ.
+
+Está medido que el pozo de ufcstats está seco. Lo que mueve la aguja es **fuente nueva**,
+no features nuevas sobre las mismas columnas.
+
+## Licencias
+
+- **Código:** [MIT](LICENSE).
+- **Datos versionados en `data/`:** [CC BY 4.0](LICENSE-DATA) — son registros producidos
+  por este proyecto.
+
+Los datos de terceros **no se redistribuyen** acá: el repo los descarga, cada fuente
+conserva sus términos. El detalle está en [`LICENSE-DATA`](LICENSE-DATA).
+
+## Fuentes
+
+- [ufcstats.com](http://ufcstats.com), vía [`Greco1899/scrape_ufc_stats`](https://github.com/Greco1899/scrape_ufc_stats) — estadísticas de pelea.
+- [`shortlikeafox/ultimate_ufc_dataset`](https://github.com/shortlikeafox/ultimate_ufc_dataset) — odds históricas 2010+ (congelado desde 2026-04-01).
+- [Wikipedia](https://en.wikipedia.org/w/api.php) — reemplazos y peso no dado (CC BY-SA 4.0 en origen).
+- [Sherdog](https://www.sherdog.com) — récord pre-UFC del circuito regional.
+- [API pública de ESPN](https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard) — carteleras anunciadas.
+- [Betano](https://lat.betano.com) y [The Odds API](https://the-odds-api.com) — cuotas en vivo.
+
+No afiliado a UFC, Zuffa, ni a ninguna casa de apuestas.

@@ -1,6 +1,37 @@
-data/
-static/
+# Entorno y secretos
 .venv/
 __pycache__/
 .env
 .streamlit/secrets.toml
+.DS_Store
+
+# Datos. Se versiona solo el registro propio del proyecto: chico e irreproducible
+# hacia atras (un tick de cuota o un primer avistaje no se recuperan despues).
+# Todo lo demas se regenera con el pipeline del README, o es privado.
+data/*
+# predicciones congeladas al primer avistaje (forward test)
+!data/ledger.csv
+# primer avistaje de cada pelea: detecta reemplazos tardios
+!data/cartelera_hist.csv
+# ticks de cuota apertura->cierre: la unica fuente de CLV
+!data/betano_hist.csv
+# picks publicos de predictores, y su audit log append-only
+!data/picks.csv
+!data/picks_audit.csv
+# ganadores cargados a mano
+!data/resultados.csv
+
+# Queda afuera a proposito, y no solo por tamano:
+#   data/raw/            474 MB scrapeados de terceros; los baja `ufc.datos.fetch`
+#   data/intel.db        dossiers de personas reales generados por LLM
+#   data/apuestas*.csv   apuestas con plata real, en CLP
+#   data/*.backup .bak   copias locales
+
+# Fotos de peleadores: 50 MB de imagenes con derechos de UFC/Sherdog.
+# Las baja `ufc.datos.fotos`.
+static/
+
+# Data vendorizada de skills. El patron viejo `data/` la tapaba sin querer (matcheaba
+# cualquier carpeta `data` a cualquier profundidad); `data/*` esta anclado a la raiz,
+# asi que hay que nombrarla. Se mantiene el comportamiento anterior.
+.claude/skills/*/data/

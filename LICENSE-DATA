@@ -1,0 +1,65 @@
+Licencia de los datos versionados en este repositorio
+=====================================================
+
+El codigo esta bajo MIT (ver `LICENSE`). Los datos tienen licencia aparte
+porque son una base de datos, no software.
+
+Alcance
+-------
+
+Esta licencia cubre unicamente los archivos que este repositorio versiona
+dentro de `data/`:
+
+    data/ledger.csv
+    data/cartelera_hist.csv
+    data/betano_hist.csv
+    data/picks.csv
+    data/picks_audit.csv
+    data/resultados.csv
+
+Son registros producidos por este proyecto: predicciones congeladas, primeros
+avistajes de cartelera, ticks de cuota observados, picks publicos de terceros
+recopilados a mano y los ganadores cargados a mano.
+
+Licencia
+--------
+
+Creative Commons Attribution 4.0 International (CC BY 4.0).
+
+    https://creativecommons.org/licenses/by/4.0/
+    Texto legal completo: https://creativecommons.org/licenses/by/4.0/legalcode
+
+Podes copiarlos, redistribuirlos, transformarlos y usarlos comercialmente,
+citando la fuente e indicando si los modificaste.
+
+Atribucion sugerida:
+
+    Datos de ml-ufc (https://github.com/<usuario>/ml-ufc), CC BY 4.0.
+
+Lo que esta licencia NO cubre
+-----------------------------
+
+Nada de lo que el repositorio deja fuera de Git, que es material de terceros y
+no se redistribuye aca. Cada fuente conserva sus propios terminos:
+
+  * `data/raw/*.csv` — estadisticas de ufcstats.com scrapeadas por
+    Greco1899/scrape_ufc_stats, y odds historicas de
+    shortlikeafox/ultimate_ufc_dataset. Los baja `ufc.datos.fetch`.
+  * `data/raw/wiki/` — texto de articulos de Wikipedia (CC BY-SA 4.0 en origen).
+  * `data/raw/sherdog/` — HTML cacheado de sherdog.com.
+  * `static/fotos/` — imagenes de peleadores de ufc.com y sherdog.com, con
+    derechos de sus titulares.
+  * `data/intel.db` y los CSV de inteligencia — resumenes generados por un LLM
+    sobre noticias y feeds publicos de personas identificables. Se excluyen a
+    proposito.
+
+Hechos deportivos (resultados, fechas, cuotas) no son obra protegible en si
+mismos; la seleccion y organizacion de este repositorio si, y es lo que se
+licencia arriba.
+
+Las cuotas de `betano_hist.csv` son observaciones puntuales tomadas de una casa
+de apuestas publica, con fines de investigacion y verificacion. No constituyen
+un feed ni sustituyen al proveedor.
+
+Si sos titular de derechos sobre algo publicado aca y queres que se retire,
+abri un issue.
