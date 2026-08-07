@@ -38,11 +38,6 @@ def _meta(evento):
     return f"{_fecha(evento['fecha'])} · {n} {'pelea' if n == 1 else 'peleas'}"
 
 
-def _activar(clave):
-    """Callback: actualiza la seleccion antes de que empiece a dibujarse el rerun."""
-    st.session_state[_EVENTO_ACTIVO] = clave
-
-
 def _cambiar_vista(anteriores):
     st.session_state[_VER_ANTERIORES] = anteriores
 
@@ -84,50 +79,31 @@ def _agenda_anteriores(eventos, pagina_predictores):
 
 
 def _agenda(eventos):
-    """Dibuja la portada y agenda; devuelve solo el evento que debe calcularse."""
+    """Selector de cartelera; devuelve solo el evento que debe calcularse.
+
+    ponytail: un selectbox en vez de una tarjeta por evento. La UFC anuncia diez o
+    doce carteleras a la vez y la agenda empujaba la cartelera que se venia a ver
+    debajo de dos pantallas de eventos de dentro de tres meses.
+    """
     eventos = sorted(eventos, key=lambda e: e.get("fecha") or "9999-12-31")
     por_clave = {_clave(e): e for e in eventos}
     if st.session_state.get(_EVENTO_ACTIVO) not in por_clave:
         st.session_state[_EVENTO_ACTIVO] = _clave(eventos[0])
+    proximo = _clave(eventos[0])
 
-    proximo = eventos[0]
-    clave_proximo = _clave(proximo)
-    with st.container(border=True):
-        with st.container(horizontal=True, horizontal_alignment="distribute",
-                          vertical_alignment="center"):
-            st.badge("Próximo evento", icon=":material/local_fire_department:",
-                     color="orange")
-            if falta := comunes.cuenta_regresiva(proximo["fecha"]):
-                st.badge(falta, icon=":material/schedule:", color="blue")
-        st.header(proximo["evento"])
-        st.caption(_meta(proximo))
-        seleccionado = st.session_state[_EVENTO_ACTIVO] == clave_proximo
-        st.button("Cartelera en pantalla" if seleccionado else "Ver esta cartelera",
-                  key="cartelera_evento_proximo",
-                  icon=":material/check:" if seleccionado else ":material/arrow_forward:",
-                  type="primary", disabled=seleccionado, width="stretch",
-                  on_click=_activar, args=(clave_proximo,))
+    def etiqueta(clave):
+        e = por_clave[clave]
+        prefijo = "Próximo · " if clave == proximo else ""
+        return f"{prefijo}{e['evento']} · {_meta(e)}"
 
-    if len(eventos) > 1:
-        st.caption("MÁS ADELANTE")
-        for i, evento in enumerate(eventos[1:], 1):
-            clave = _clave(evento)
-            seleccionado = st.session_state[_EVENTO_ACTIVO] == clave
-            with st.container(border=True, horizontal=True,
-                              horizontal_alignment="distribute",
-                              vertical_alignment="center"):
-                with st.container(gap=None):
-                    st.markdown(f"**{evento['evento']}**")
-                    st.caption(_meta(evento))
-                with st.container(horizontal=True, vertical_alignment="center",
-                                  width="content"):
-                    if falta := comunes.cuenta_regresiva(evento["fecha"]):
-                        st.badge(falta, color="gray", icon=":material/schedule:")
-                    st.button("En pantalla" if seleccionado else "Ver cartelera",
-                              key=f"cartelera_evento_{i}",
-                              icon=":material/check:" if seleccionado
-                              else ":material/arrow_forward:", disabled=seleccionado,
-                              on_click=_activar, args=(clave,))
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        st.selectbox("Cartelera", list(por_clave), key=_EVENTO_ACTIVO,
+                     format_func=etiqueta,
+                     help="Las carteleras anunciadas, de la más cercana a la más lejana.")
+        st.button("Anteriores", icon=":material/history:",
+                  help="Carteleras que ya ocurrieron, para cargar picks y confirmar "
+                       "resultados.",
+                  on_click=_cambiar_vista, args=(True,))
 
     return por_clave[st.session_state[_EVENTO_ACTIVO]]
 
@@ -207,11 +183,12 @@ def render(modelo, estado, pagina_predictores=None):
         return
 
     evento = _agenda(eventos)
-    st.button("Ver carteleras anteriores", icon=":material/history:",
-              on_click=_cambiar_vista, args=(True,))
 
     st.header(evento["evento"], divider="gray")
-    st.caption(_meta(evento))
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.caption(_meta(evento))
+        if falta := comunes.cuenta_regresiva(evento["fecha"]):
+            st.badge(falta, icon=":material/schedule:", color="blue")
 
     # La agenda aparece antes que estas consultas: el usuario ve y elige los eventos
     # sin esperar los precios, y solo se calcula el detalle de la seleccion activa.

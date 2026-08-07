@@ -803,21 +803,20 @@ def check_app():
     # Cartelera mantiene cuota de debutantes, consenso multi-casa y registro automatico.
     cart = AppTest.from_function(_render_page,
                                  args=("ufc.ui.tab_cartelera", (modelo, estado)),
-                                 default_timeout=120).run()
-    assert not cart.selectbox, "la agenda reemplaza el selector desplegable"
-    assert [b.label for b in cart.button] == ["Cartelera en pantalla", "Ver cartelera",
-                                               "Ver carteleras anteriores"], \
-        [b.label for b in cart.button]
-    cart.button[1].click().run()
-    assert cart.button[1].label == "En pantalla" and cart.button[1].disabled, \
-        [(b.label, b.disabled, b.value) for b in cart.button]
-    assert "UFC Prueba 2" in [h.value for h in cart.header], \
-        [h.value for h in cart.header]
+                                 default_timeout=120)
+    # Una seleccion vieja que ESPN ya no lista cae al evento mas cercano.
     cart.session_state["cartelera_evento_activo"] = "evento que ya no existe"
     cart.run()
-    assert cart.button[0].label == "Cartelera en pantalla" and cart.button[0].disabled, \
-        [(b.label, b.disabled) for b in cart.button]
-    cart.button[2].click().run()
+    # La agenda es un selector: doce carteleras anunciadas no pueden tapar la que se abre.
+    assert [b.label for b in cart.button] == ["Anteriores"], \
+        [b.label for b in cart.button]
+    assert len(cart.selectbox) == 1 and cart.selectbox[0].options[0].startswith(
+        "Próximo · ") and cart.selectbox[0].value.endswith("UFC 999: Test"), \
+        [(s.value, s.options) for s in cart.selectbox]
+    cart.selectbox[0].select_index(1).run()
+    assert "UFC Prueba 2" in [h.value for h in cart.header], \
+        [h.value for h in cart.header]
+    cart.button[0].click().run()
     assert "UFC Anterior" in [m.value.strip("*") for m in cart.markdown], \
         [m.value for m in cart.markdown]
     assert [b.label for b in cart.button] == ["Volver a próximos eventos"]
