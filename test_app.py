@@ -1503,7 +1503,7 @@ def check_ia_store():
     import pathlib
     import tempfile
 
-    from ufc.ia import analista, store as ia_store
+    from ufc.ia import analista, dossier, store as ia_store
 
     d = _ia_dossier()
     veredicto = analista.validar(
@@ -1547,6 +1547,19 @@ def check_ia_store():
 
             v = ia_store.veredictos(_IA_EVENTO["evento"])
             assert v[(_IA_PELEA["a"], _IA_PELEA["b"])]["informe"] is not None
+
+            # con el dossier, el informe guarda el input exacto: la huella es un hash y
+            # con un hash no se audita por que opino lo que opino
+            assert "_prompt" not in informe, "sin dossier no se inventa nada"
+            ia_store.guardar(fila, veredicto, d)
+            con_input = ia_store.informe(_IA_EVENTO["evento"], _IA_PELEA["a"],
+                                         _IA_PELEA["b"])
+            assert con_input["_prompt"] == dossier.render(d)
+            assert con_input["_dossier"]["pelea"]["a"] == _IA_PELEA["a"]
+            # y el veredicto sigue estando en la raiz: `comunes.ia_tarjeta` lo indexa asi
+            assert con_input["contra"].startswith("Nunca peleo")
+            # pero nada de eso puede filtrarse al CSV, que si se versiona
+            assert "Sos un analista" not in ia_store.ARCHIVO.read_text()
 
             # sin el JSON (clon nuevo) la fila numerica tiene que seguir sirviendo
             ia_store.ruta_informe(_IA_EVENTO["evento"], _IA_PELEA["a"],
@@ -1689,6 +1702,204 @@ def check_ia_evaluar():
         assert ahora == antes, "evaluar() no puede escribir en data/ledger.csv"
 
 
+# ---------------------------------------------------- resultados en vivo y tipster
+# El mismo endpoint de ESPN que sirve las carteleras futuras devuelve las peleadas. El
+# payload de abajo es el recorte real: `winner` por competidor, el asalto en
+# `status.period`, el reloj en `displayClock` y el metodo como un texto de play-by-play
+# que ESPN a veces no manda — ese ultimo caso es el que importa que no se invente.
+
+def _post(peso, gana, pierde, texto, periodo, reloj):
+    return {"type": {"abbreviation": peso},
+            "status": {"type": {"state": "post"}, "period": periodo,
+                       "displayClock": reloj},
+            "details": ([{"type": {"text": f"Unofficial Winner {texto}"}}]
+                        if texto else []) + [{"type": {"text": "Results"}}],
+            "competitors": [{"athlete": {"displayName": pierde}, "winner": False},
+                            {"athlete": {"displayName": gana}, "winner": True}]}
+
+
+# ESPN lista los preliminares primero y el main event ultimo, igual que en CARTELERA.
+EN_VIVO = {"events": [{
+    "name": "UFC 999: Test", "date": "2026-08-15T21:00Z",
+    "competitions": [
+        _post("Strawweight", "Ana Ruiz", "Bea Solís", "Kotko", 1, "3:12"),
+        _post("Bantamweight", "Cai Lin", "Dan Roe", "Submission", 2, "4:44"),
+        # ESPN no siempre publica el metodo: es play-by-play, no la ficha oficial.
+        _post("Welterweight", "Kauê Fernandes", "Jalin Turner", None, 3, "5:00"),
+        {"type": {"abbreviation": "Middleweight"},
+         "status": {"type": {"state": "in"}, "period": 2, "displayClock": "1:00"},
+         "competitors": [{"athlete": {"displayName": A}},
+                         {"athlete": {"displayName": B}}]},
+    ]}]}
+
+
+def check_resultados_espn():
+    """Ganador, metodo, asalto y minuto; y que un metodo ausente no se adivine."""
+    import pathlib
+    import tempfile
+
+    from ufc.datos import resultados
+    from ufc.registro import predictores as reg
+
+    ev = resultados.parsear(EN_VIVO)
+    assert ev["evento"] == "UFC 999: Test" and ev["inicio_utc"] == "2026-08-15T21:00Z"
+    # main event primero, igual que `cartelera._parsear` y que el cartel de la app
+    assert ev["peleas"][0]["a"] == A and ev["peleas"][0]["estado"] == "in"
+    assert ev["peleas"][0]["ganador"] is None, "una pelea en curso no tiene ganador"
+
+    kotko = ev["peleas"][-1]
+    assert kotko["ganador"] == "b" and kotko[kotko["ganador"]] == "Ana Ruiz"
+    assert kotko["metodo"] == settlement.KO and kotko["asalto"] == 1
+    assert kotko["reloj"] == "3:12"
+    assert ev["peleas"][-2]["metodo"] == settlement.SUB
+    # lo que ESPN no dice no se deduce del reloj: `settlement` tampoco adivina
+    sin_metodo = ev["peleas"][1]
+    assert sin_metodo["ganador"] == "b" and sin_metodo["metodo"] is None
+    assert sin_metodo["b"] == "Kauê Fernandes" and sin_metodo["asalto"] == 3
+
+    assert len(resultados.resueltas(ev)) == 3
+    assert resultados.parsear(EN_VIVO, "2026-08-15") is not None
+    assert resultados.parsear(EN_VIVO, "2026-01-01") is None
+
+    # volcar reusa guardar_resultados, que reemplaza TODAS las filas del evento: hay que
+    # pasarle la cartelera entera o cada llamada borraria la anterior
+    original = reg.RESULTADOS
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            reg.RESULTADOS = pathlib.Path(tmp) / "resultados.csv"
+            assert resultados.volcar(ev) == 3
+            resultados.volcar(ev)
+            guardado = reg.leer_resultados(ev["evento"])
+            assert len(guardado) == 3, guardado
+            fila = guardado[guardado["a"] == "Bea Solís"].iloc[0]
+            assert fila["ganador"] == "b", "el lado es relativo al a/b de la fila"
+    finally:
+        reg.RESULTADOS = original
+
+
+def _fila_ia(pick, p_a, veredicto="definido", metodo=""):
+    return {"a": "Kauê Fernandes", "b": "Jalin Turner", "pick": pick, "p_a_ia": p_a,
+            "veredicto": veredicto, "confianza": "media", "metodo_probable": metodo,
+            "casa": "", "cuota_tomada": None, "ev_ia": None,
+            "p_a_modelo": None, "p_a_mercado": None}
+
+
+def check_tipster_mensajes():
+    """Acierto, fallo y abstencion; y el orden cronologico, que va al reves del cartel."""
+    from ufc import tipster
+    from ufc.datos import resultados
+
+    ev = resultados.parsear(EN_VIVO)
+    pelea = ev["peleas"][1]          # Kauê Fernandes le gana a Jalin Turner
+    assert pelea[pelea["ganador"]] == "Kauê Fernandes"
+
+    def texto(fila, **kw):
+        return tipster.texto_resultado(pelea, fila, orden=2, n=3, total=4,
+                                       ganadas=1, jugadas=2, **kw)
+
+    ok = texto(_fila_ia("a", 0.65))
+    assert "ACERTADA" in ok and "Kauê Fernandes" in ok and "65%" in ok
+    assert "Van <b>1 de 2</b>" in ok
+
+    mal = texto(_fila_ia("b", 0.35))
+    assert "FALLADA" in mal and "Ganó Kauê Fernandes" in mal
+    assert "ACERTADA" not in mal
+
+    # una pelea declarada pareja no es un fallo: `sincronizar_picks` la excluye del
+    # ranking, y contarla aca diria lo contrario de lo que la IA declaro
+    parejo = texto(_fila_ia("b", 0.45, veredicto="parejo"))
+    assert "SE ABSTUVO" in parejo and "FALLADA" not in parejo
+
+    # ESPN no mando el metodo de esta pelea, asi que el mensaje no lo nombra
+    assert "por decisión" not in ok and "en el asalto 3" in ok
+    # y tampoco lo compara: sin metodo real no hay nada que acertar
+    assert "método" not in texto(_fila_ia("a", 0.65, metodo="dec"))
+
+    por_ko = ev["peleas"][-1]        # Ana Ruiz gana por KO/TKO en el 1
+    sin_ia = tipster.texto_resultado(por_ko, None, orden=1, n=4, total=4,
+                                     ganadas=0, jugadas=0)
+    assert "por KO/TKO en el asalto 1" in sin_ia and "no analizó" in sin_ia
+    assert "Van" not in sin_ia, "sin picks jugadas no hay marcador que mostrar"
+
+    # el metodo acertado se dice; el errado tambien, y distinto
+    def fila_ko(metodo):
+        return dict(_fila_ia("b", 0.3, metodo=metodo), a="Bea Solís", b="Ana Ruiz")
+
+    def texto_ko(metodo):
+        return tipster.texto_resultado(por_ko, fila_ko(metodo), orden=1, n=4, total=4,
+                                       ganadas=1, jugadas=1)
+
+    assert "acertó también al método: KO/TKO" in texto_ko("ko")
+    assert "esperaba decisión" in texto_ko("dec")
+    assert "ACERTADA" in texto_ko("ko") and "Ana Ruiz" in texto_ko("ko")
+
+    # el cartel numera con el main event primero y la noche va al reves: la primera
+    # pelea de la noche es la ultima del cartel
+    orden = tipster.cronologicas(ev)
+    assert [(o, n) for o, n, _ in orden] == [(1, 4), (2, 3), (3, 2)], orden
+    assert orden[0][2]["a"] == "Bea Solís", "arrancan los preliminares"
+
+    ia = {tipster._par("Kauê Fernandes", "Jalin Turner"): _fila_ia("a", 0.65),
+          tipster._par("Ana Ruiz", "Bea Solís"): _fila_ia("a", 0.4, veredicto="parejo")}
+    ganadas, jugadas, parejas = tipster.marcador(ev, ia)
+    assert (ganadas, jugadas, parejas) == (1, 1, 1), (ganadas, jugadas, parejas)
+
+
+def check_tipster_allowlist():
+    """Un chat que no esta en la lista no recibe nada. El bot publica picks y plata."""
+    import os
+
+    from ufc import tipster
+
+    previo = os.environ.get("TELEGRAM_CHAT_IDS")
+    try:
+        os.environ["TELEGRAM_CHAT_IDS"] = " 111 , 222;333 "
+        assert tipster.chats() == ["111", "222", "333"]
+        os.environ["TELEGRAM_CHAT_IDS"] = ""
+        assert tipster.chats() == [], "sin allowlist el bot no le habla a nadie"
+
+        os.environ["TELEGRAM_CHAT_IDS"] = "111"
+        enviados, estado = [], tipster.ESTADO
+
+        def falso_api(metodo, **params):
+            if metodo == "getUpdates":
+                return [{"update_id": 7,
+                         "message": {"chat": {"id": 111}, "text": "/start"}},
+                        {"update_id": 8,
+                         "message": {"chat": {"id": 999}, "text": "/ia"}}]
+            enviados.append(params)
+            return {}
+
+        import pathlib
+        import tempfile
+        api_real = tipster._api
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tipster.ESTADO = pathlib.Path(tmp) / "tipster.json"
+                tipster._api = falso_api
+                tipster.atender()
+                assert len(enviados) == 1, enviados
+                assert str(enviados[0]["chat_id"]) == "111"
+                assert "Tipster UFC" in enviados[0]["text"]
+                # el update del intruso se consume igual: si no, se reprocesa para siempre
+                assert tipster._leer_estado()["update_id"] == 8
+        finally:
+            tipster._api = api_real
+            tipster.ESTADO = estado
+
+        # comandos: los conocidos contestan, el resto no existe
+        assert tipster.responder("/pelea") is not None
+        assert tipster.responder("/start@MiBot") is not None, "en grupos llega con @bot"
+        assert tipster.responder("hola") is None
+        assert tipster.responder("") is None
+        assert tipster.responder("/borrar_todo") is None
+    finally:
+        if previo is None:
+            os.environ.pop("TELEGRAM_CHAT_IDS", None)
+        else:
+            os.environ["TELEGRAM_CHAT_IDS"] = previo
+
+
 def check_gate():
     """El gate arranca cerrado y solo abre con IC limpio Y muestra preregistrada."""
     import numpy as np
@@ -1741,6 +1952,8 @@ if __name__ == "__main__":
                   check_ia_record, check_ia_historial, check_ia_validar,
                   check_ia_validar_incoherente, check_ia_abstencion, check_ia_ev_python,
                   check_ia_store, check_ia_predictores, check_ia_evaluar,
+                  check_resultados_espn, check_tipster_mensajes,
+                  check_tipster_allowlist,
                   check_app):
         check()
         print(f"ok  {check.__name__}")

@@ -5,10 +5,11 @@ versiona en git y es lo que despues mide `ufc/ia/evaluar.py`. Un veredicto con l
 y la inteligencia del dia en que se emitio no se puede reconstruir despues, asi que entra
 en la misma categoria que `ledger.csv` y `picks.csv`.
 
-`data/ia_informes/` es el texto: razones, factores, contraargumento. Eso queda fuera de
-git por el mismo motivo que `data/intel.db`, que el `.gitignore` deja escrito: son
-dossiers sobre personas reales generados por un LLM. La app los lee de disco; si no
-estan, muestra la fila numerica y lo dice.
+`data/ia_informes/` es el texto: razones, factores, contraargumento — y, bajo `_prompt` y
+`_dossier`, el input exacto con el que se produjo. Eso queda fuera de git por el mismo
+motivo que `data/intel.db`, que el `.gitignore` deja escrito: son dossiers sobre personas
+reales generados por un LLM. La app los lee de disco; si no estan, muestra la fila
+numerica y lo dice.
 
 La clave de idempotencia es (evento, a, b, run_day), igual que `intel.store.ya_revisado`:
 una pelea se analiza una vez por dia, y abrir la app veinte veces no cuesta nada.
@@ -110,11 +111,18 @@ def fila_desde(veredicto, dossier, *, run_day, modelo_ia, usage=None, ts=None):
     }
 
 
-def guardar(fila, veredicto):
+def guardar(fila, veredicto, dossier=None):
     """Escribe la fila numerica y el informe. Reemplaza si ya existe esa clave.
 
     Reescribir el CSV entero cuesta menos codigo que un append con dedup y ademas permite
     que `--force` corrija un veredicto en vez de duplicarlo. Son ~14 filas por cartelera.
+
+    Con `dossier`, el informe se lleva ademas el texto exacto que se le envio al modelo.
+    La columna `huella` es un sha256 del prompt: sirve para saber si dos veredictos vieron
+    lo mismo, pero no para auditar por que opino lo que opino. Sin el prompt guardado, una
+    pick vieja solo se puede explicar reconstruyendo el dossier con el codigo de hoy, que
+    ya no es el que corrio. Son ~15 KB por pelea en una carpeta que igual esta fuera de
+    git.
     """
     viejo = leer()
     if len(viejo):
@@ -126,9 +134,18 @@ def guardar(fila, veredicto):
     nuevo = pd.concat([viejo, pd.DataFrame([fila], columns=COLS)], ignore_index=True)
     nuevo[COLS].to_csv(ARCHIVO, index=False)
 
+    # El input va con `_` adelante y adentro del mismo dict: `informe()` devuelve esto tal
+    # cual y sus lectores (`comunes.ia_tarjeta`) indexan las claves del veredicto
+    # directamente. Anidarlo en {"veredicto": ...} los rompe a todos; el prefijo alcanza
+    # para distinguir lo que respondio el modelo de lo que se le mando.
+    cuerpo = dict(veredicto)
+    if dossier is not None:
+        cuerpo["_prompt"] = dossier_mod.render(dossier)
+        cuerpo["_dossier"] = dossier
+
     destino = ruta_informe(fila["evento"], fila["a"], fila["b"])
     destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(json.dumps(veredicto, ensure_ascii=False, indent=1))
+    destino.write_text(json.dumps(cuerpo, ensure_ascii=False, indent=1, default=str))
 
 
 def informe(evento, a, b):

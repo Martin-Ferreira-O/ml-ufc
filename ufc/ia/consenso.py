@@ -181,7 +181,7 @@ def ejecutar(evento, *, ctx=None, provider=None, force=False, run_day=None,
                     continue
                 fila = store.fila_desde(veredicto, d, run_day=run_day,
                                         modelo_ia=modelo_ia, usage=usage)
-                store.guardar(fila, veredicto)
+                store.guardar(fila, veredicto, d)
                 hechas.append((pelea, veredicto, usage))
                 print(f"OK  {pelea['a']} vs {pelea['b']} — "
                       f"{_resumen_pelea(pelea, veredicto, d)}", flush=True)
