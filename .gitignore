@@ -23,10 +23,14 @@ data/*
 !data/picks_audit.csv
 # ganadores cargados a mano
 !data/resultados.csv
+# veredictos de la IA: pick, probabilidad y precio congelados el dia que opino. Solo
+# numeros y enums; el texto del informe vive en data/ia_informes/ y queda afuera.
+!data/ia_consenso.csv
 
 # Queda afuera a proposito, y no solo por tamano:
 #   data/raw/            474 MB scrapeados de terceros; los baja `ufc.datos.fetch`
 #   data/intel.db        dossiers de personas reales generados por LLM
+#   data/ia_informes/    lo mismo, pero por pelea: razonamiento de un LLM sobre gente real
 #   data/apuestas*.csv   apuestas con plata real, en CLP
 #   data/*.backup .bak   copias locales
 

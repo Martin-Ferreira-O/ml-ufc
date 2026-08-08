@@ -15,6 +15,7 @@ import requests
 import streamlit as st
 
 from ufc.datos import betano, cartelera, fotos, oddsapi
+from ufc.ia import analista, store as ia_store
 from ufc.intel import identities, store
 from ufc.modelo import predict
 from ufc.registro import predictores
@@ -185,6 +186,13 @@ def intel_evento():
 @st.cache_data(ttl=60, show_spinner=False)
 def intel_perfiles(peleadores):
     return {peleador: identities.profiles_for(peleador) for peleador in peleadores}
+
+
+# Lee dos archivos locales, no la API: el TTL corto es para que el resultado del boton
+# "Analizar con IA" aparezca sin recargar la pagina, no para limitar ningun costo.
+@st.cache_data(ttl=60, show_spinner=False)
+def ia_veredictos(evento):
+    return ia_store.veredictos(evento)
 
 
 @st.cache_data(ttl=86400, show_spinner="Buscando las fotos…")
@@ -487,6 +495,12 @@ def picks_pelea(fila):
         st.badge("Mercado coincide" if fila.mercado_confirma else "Mercado no coincide",
                  color="orange" if fila.mercado_confirma else "gray",
                  icon=":material/storefront:")
+        # La IA es el tercer confirmador, al lado del modelo y del mercado. No vota el
+        # apoyo humano de arriba: si votara, "consenso humano" dejaria de ser humano.
+        if getattr(fila, "ia_eligio", ""):
+            st.badge("IA coincide" if fila.ia_confirma else "IA no coincide",
+                     color="green" if fila.ia_confirma else "gray",
+                     icon=":material/smart_toy:")
         if pd.notna(fila.cuota):
             st.badge(f"Cuota {fila.cuota:.2f}", color="violet", icon=":material/sell:")
     for pick in fila.detalle:
@@ -496,6 +510,85 @@ def picks_pelea(fila):
                      if pick["acierto"] is not None and pick["total"]
                      else "sin historial")
         st.caption(f"**{pick['predictor']}** → {pick['eligio']} · {historial}")
+
+
+IA_COLOR = {"si": "green", "mirar": "orange", "no": "gray"}
+IA_ICONO = {"si": ":material/check_circle:", "mirar": ":material/visibility:",
+            "no": ":material/do_not_disturb_on:"}
+IA_FUENTE = {"modelo": "Modelo", "mercado": "Mercado", "estadistica": "Estadística",
+             "inteligencia": "Inteligencia", "tipsters": "Predictores",
+             "contexto": "Contexto"}
+
+
+def ia_disponible():
+    """La IA necesita key. Sin ella el boton se muestra apagado y con el motivo."""
+    return analista.hay_api()
+
+
+def ia_badge(fila, pelea):
+    """El badge de una linea: a quien eligio la IA y con cuanta confianza."""
+    quien = pelea["a"] if fila["pick"] == "a" else pelea["b"]
+    p = float(fila["p_a_ia"])
+    p_lado = p if fila["pick"] == "a" else 1 - p
+    st.badge(f"IA: {quien} {p_lado:.0%} · confianza {fila['confianza']}",
+             color=IA_COLOR.get(fila["apostar"], "gray"),
+             icon=":material/smart_toy:")
+
+
+def ia_apuesta(fila, pelea):
+    """Lo que la IA dice sobre apostar, con el precio que lo justifica.
+
+    El EV que se muestra lo calculo `analista.validar` en Python con la cuota real, no lo
+    dijo el modelo: un LLM multiplica mal y con confianza.
+    """
+    veredicto = fila["apostar"]
+    if veredicto == "no":
+        st.caption("La IA no ve apuesta en esta pelea.")
+        return
+    lado = fila["lado"] if fila["lado"] in ("a", "b") else fila["pick"]
+    quien = pelea["a"] if lado == "a" else pelea["b"]
+    cuota = fila["cuota_tomada"]
+    precio = "" if pd.isna(cuota) else f" a {float(cuota):.2f} en {fila['casa']}"
+    ev = "" if pd.isna(fila["ev_ia"]) else f" · EV {float(fila['ev_ia']):+.1%}"
+    if veredicto == "si":
+        st.success(f"**La IA apostaría {quien}{precio}.**{ev}", icon=IA_ICONO["si"])
+    else:
+        st.info(f"**La IA lo pondría en seguimiento: {quien}{precio}.**{ev}",
+                icon=IA_ICONO["mirar"])
+
+
+def ia_tarjeta(fila, pelea):
+    """El razonamiento detras del veredicto. No abre expander: la dibuja el de la pelea.
+
+    El veredicto de apuesta no se repite aca: lo dibuja `ia_apuesta` afuera, porque es el
+    titular y tiene que verse sin desplegar nada.
+    """
+    informe = fila.get("informe")
+    if not informe:
+        st.caption("El informe con el razonamiento no está en esta máquina "
+                   "(`data/ia_informes/` no se versiona). El veredicto de arriba sí.")
+        return
+
+    if informe.get("razones"):
+        st.markdown("**Por qué**")
+        for r in informe["razones"]:
+            fuente = IA_FUENTE.get(r["fuente"], r["fuente"])
+            st.caption(f"**{fuente}** · peso {r['peso']} — {r['texto']}")
+
+    if informe.get("factores_no_modelables"):
+        # Este bloque es el motivo de existir de toda la capa: lo que ninguna columna ve.
+        st.markdown("**Lo que el modelo no puede ver**")
+        for f in informe["factores_no_modelables"]:
+            quien = pelea["a"] if f["favorece"] == "a" else pelea["b"]
+            st.caption(f"**{f['titulo']}** · favorece a {quien} · {f['certeza']} — "
+                       f"{f['explicacion']}")
+
+    if informe.get("contra"):
+        st.markdown("**El mejor argumento en contra de su propio pick**")
+        st.caption(informe["contra"])
+
+    for bandera in informe.get("banderas", []):
+        st.caption(f":material/flag: {bandera}")
 
 
 def intel_color(score):
