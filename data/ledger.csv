@@ -1,17 +1,18 @@
-visto,evento,fecha_evento,a,b,p_a,p_mercado,cuota_a,cuota_b,confianza,apuesta,ev,mejor_a,mejor_b,p_con_odds
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,0.4594,0.2076,4.05,1.23,baja,,0.8604,,,0.1993
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,0.246,0.2528,3.45,1.3,alta,,-0.0198,,,0.2064
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,0.3632,0.2347,3.65,1.27,media,,0.3255,,,0.2244
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,0.4736,0.4091,2.27,1.62,media,,0.0751,,,0.4571
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,0.6918,0.7346,1.32,3.3,alta,b,0.0172,,,0.7507
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,0.3634,0.3209,2.8,1.42,alta,a,0.0174,,,0.2897
-2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,0.2459,0.1315,5.8,1.13,media,,0.4262,,,0.1121
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,0.3887,0.4459,2.1,1.72,media,,0.0515,,,0.4099
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,0.591,0.6194,1.55,2.42,alta,,-0.0103,,,0.6117
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,0.3499,0.1315,5.8,1.13,baja,,1.0295,,,0.1587
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,0.3185,0.3111,2.87,1.4,alta,,-0.0459,,,0.2901
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,0.4208,0.4091,2.27,1.62,alta,,-0.0449,,,0.3787
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,0.5176,0.6791,1.42,2.8,baja,,0.3506,,,0.612
-2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,0.5201,0.7015,1.38,3.0,baja,,0.4396,,,0.6655
-2026-08-01,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Islam Makhachev,Ian Machado Garry,0.7033,0.7542,1.29,3.55,media,,0.0534,,,0.7945
-2026-08-01,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Mackenzie Dern,Gillian Robertson,0.3947,0.6703,1.44,2.75,baja,,0.6646,,,0.601
+visto,evento,fecha_evento,a,b,p_a,p_mercado,cuota_a,cuota_b,confianza,apuesta,ev,mejor_a,mejor_b,p_con_odds,inicio_utc
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Daniel Rodriguez,Uroš Medić,0.4594,0.2076,4.05,1.23,baja,,0.8604,,,0.1993,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Jan Blachowicz,Navajo Stirling,0.246,0.2528,3.45,1.3,alta,,-0.0198,,,0.2064,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Marcin Tybura,Aleksandar Rakic,0.3632,0.2347,3.65,1.27,media,,0.3255,,,0.2244,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Duško Todorović,Robert Valentin,0.4736,0.4091,2.27,1.62,media,,0.0751,,,0.4571,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Ludovit Klein,Tofiq Musayev,0.6918,0.7346,1.32,3.3,alta,b,0.0172,,,0.7507,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Dennis Buzukja,Bogdan Grad,0.3634,0.3209,2.8,1.42,alta,a,0.0174,,,0.2897,
+2026-07-31,UFC Fight Night: Medić vs. Rodriguez,2026-08-01,Kyle Prepolec,Mateusz Rębecki,0.2459,0.1315,5.8,1.13,media,,0.4262,,,0.1121,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Mateusz Gamrot,Quillan Salkilld,0.3887,0.4459,2.1,1.72,media,,0.0515,,,0.4099,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,0.591,0.6194,1.55,2.42,alta,,-0.0103,,,0.6117,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,0.3499,0.1315,5.8,1.13,baja,,1.0295,,,0.1587,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,0.3185,0.3111,2.87,1.4,alta,,-0.0459,,,0.2901,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,0.4208,0.4091,2.27,1.62,alta,,-0.0449,,,0.3787,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,0.5176,0.6791,1.42,2.8,baja,,0.3506,,,0.612,
+2026-08-01,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,0.5201,0.7015,1.38,3.0,baja,,0.4396,,,0.6655,
+2026-08-01,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Islam Makhachev,Ian Machado Garry,0.7033,0.7542,1.29,3.55,media,,0.0534,,,0.7945,
+2026-08-01,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Mackenzie Dern,Gillian Robertson,0.3947,0.6703,1.44,2.75,baja,,0.6646,,,0.601,
+2026-08-07,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,0.6759,0.6107,1.57,2.37,media,,0.0611,1.63,2.5,0.6992,2026-08-08T21:00Z

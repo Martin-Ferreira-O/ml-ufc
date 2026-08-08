@@ -2,14 +2,16 @@
 
 La parte importante de este modulo no es la llamada, es `validar`. Un LLM devuelve JSON
 bien formado y contenido inventado con la misma cara, asi que nada de lo que dice se
-guarda tal cual: la probabilidad se clampea, los enums se coercen, la pick se corrige si
-contradice su propia probabilidad, y **el EV se calcula en Python** con la cuota real en
-vez de leerse de la respuesta. Es el mismo criterio de `ufc/intel/analyzer.validar`, que
-descarta los hallazgos sin cita.
+guarda tal cual: la probabilidad se clampea, los enums se coercen, las razones sin fuente
+se caen y la pick se corrige si contradice su propia probabilidad. Es el mismo criterio
+de `ufc/intel/analyzer.validar`, que descarta los hallazgos sin cita.
 
-La regla que mas trabaja: "para decir que vale la pena apostar hay que nombrar el lado,
-el precio y la casa". Esta escrita en el prompt, pero un prompt es una sugerencia — aca
-se aplica de verdad, y una apuesta que no la cumple baja de "si" a "mirar" sola.
+**La IA no opina de apuestas y no puede.** El prompt que arma `dossier.render` es ciego
+al mercado, asi que la unica pregunta que responde es deportiva: quien gana, con que
+probabilidad, o si la pelea esta demasiado pareja como para elegir (`veredicto: parejo`).
+El EV lo calcula `ev_contra_mercado` despues, en Python, cruzando esa probabilidad con la
+cuota real. Es la misma aritmetica que antes, corrida del lado correcto de la frontera:
+una lectura deportiva que nunca vio el precio es lo unico que se puede medir contra el.
 """
 
 import json
@@ -21,15 +23,17 @@ from ufc.modelo import gate
 from ufc.registro import predictores
 
 # El de `predictores.extraer`, no el flash-lite de `intel`: aquello resume evidencias
-# sueltas y esto sintetiza ocho secciones y ademas tiene que construir un contraargumento
+# sueltas y esto tiene que leer un historial entero y ademas construir un contraargumento
 # contra si mismo. Se puede bajar con UFC_IA_MODELO si el costo molesta.
 MODELO = "gemini-3.5-flash"
 
-FUENTES = ["modelo", "mercado", "estadistica", "inteligencia", "tipsters", "contexto"]
+# Sin "modelo", "mercado" ni "tipsters": nada de eso llega al prompt, asi que una razon
+# que dijera venir de ahi seria una alucinacion y se descarta sola en `_razones`.
+FUENTES = ["record", "estadistica", "estilo", "historial", "inteligencia", "contexto"]
 CERTEZAS = ["especulativo", "probable", "solido"]
 PESOS = ["alto", "medio", "bajo"]
 CONFIANZAS = ["baja", "media", "alta"]
-VEREDICTOS = ["no", "mirar", "si"]
+VEREDICTOS = ["definido", "parejo"]
 METODOS = ["ko", "sub", "dec"]
 
 MAX_RAZONES = 8
@@ -38,8 +42,12 @@ MAX_TEXTO = 600
 
 ESQUEMA = {
     "type": "object",
-    "required": ["pick", "p_a", "confianza", "razones", "contra", "apuesta"],
+    "required": ["veredicto", "pick", "p_a", "confianza", "razones", "contra"],
     "properties": {
+        # "parejo" es la abstencion: la IA se puede plantar en "no hay diferencia clara"
+        # en vez de inventar un favorito. `pick` y `p_a` siguen siendo obligatorios
+        # porque la probabilidad es lo que despues se mide con log loss.
+        "veredicto": {"type": "string", "enum": VEREDICTOS},
         "pick": {"type": "string", "enum": ["a", "b"]},
         "p_a": {"type": "number"},
         "confianza": {"type": "string", "enum": CONFIANZAS},
@@ -62,15 +70,6 @@ ESQUEMA = {
                 "certeza": {"type": "string", "enum": CERTEZAS},
             }}},
         "contra": {"type": "string"},
-        "apuesta": {
-            "type": "object",
-            "required": ["vale_la_pena", "motivo"],
-            "properties": {
-                "vale_la_pena": {"type": "string", "enum": VEREDICTOS},
-                "lado": {"type": "string", "enum": ["a", "b"]},
-                "cuota_minima": {"type": "number"},
-                "motivo": {"type": "string"},
-            }},
         "banderas": {"type": "array", "items": {"type": "string"}},
     },
 }
@@ -101,7 +100,7 @@ def precios(dossier):
     """-> {'a': (cuota, casa), 'b': (cuota, casa)} con el mejor precio ejecutable.
 
     Prefiere el mejor precio del consenso multi-casa y cae a la cuota de la casa unica.
-    Es lo que decide si una apuesta se puede nombrar: sin precio no hay nada que cobrar.
+    Lo consume `ev_contra_mercado`, no el prompt: este dato nunca llega al LLM.
     """
     mercado = dossier.get("mercado") or {}
     salida = {"a": (None, None), "b": (None, None)}
@@ -162,52 +161,29 @@ def _factores(brutos):
     return salida
 
 
-def _apuesta(bruta, pick, p_a, dossier, banderas):
-    """Decide si la apuesta que propone la IA se sostiene, y le pone numero.
+VACIO = {"lado": None, "cuota": None, "casa": None, "ev": None, "cumple_regla": False}
 
-    La IA elige; el codigo verifica que lo elegido se pueda ejecutar. Un "si" sin precio
-    nombrable no es una apuesta, es una opinion con otro nombre.
+
+def ev_contra_mercado(veredicto, dossier):
+    """-> {lado, cuota, casa, ev, cumple_regla}. La IA no vio nada de esto.
+
+    Cruza la probabilidad que la IA saco del dato deportivo con el mejor precio real. Que
+    esto corra despues del veredicto y no adentro del prompt es todo el punto: un numero
+    que se calcula sobre una lectura ciega al mercado se puede medir contra el mercado.
+
+    Una pelea que la IA llamo pareja no se apuesta: si ella misma dice que no separa a
+    los dos, su probabilidad no sostiene ningun EV.
     """
-    bruta = bruta if isinstance(bruta, dict) else {}
-    veredicto = _enum(bruta.get("vale_la_pena"), VEREDICTOS, "no")
-    lado = _enum(bruta.get("lado"), ["a", "b"])
-    motivo = _texto(bruta.get("motivo"))
-    try:
-        cuota_minima = float(bruta.get("cuota_minima"))
-    except (TypeError, ValueError):
-        cuota_minima = None
-
-    tabla = precios(dossier)
-    hay_precio = any(cuota for cuota, _ in tabla.values())
-    if not hay_precio:
-        banderas.append("Sin precio publicado: no hay apuesta posible.")
-        return {"vale_la_pena": "no", "lado": None, "cuota_minima": None,
-                "motivo": "Sin precio no hay apuesta.", "cuota": None, "casa": None,
-                "ev": None, "cumple_regla": False}
-
-    # Un veredicto sin lado se asume sobre su propia pick: es lo unico coherente.
-    if veredicto != "no" and not lado:
-        lado = pick
-    cuota, casa = tabla.get(lado or pick, (None, None))
-
-    if veredicto == "si":
-        if cuota is None:
-            veredicto = "mirar"
-            banderas.append("Dijo apostar a un lado que no tiene precio publicado.")
-        elif cuota_minima is None:
-            veredicto = "mirar"
-            banderas.append("Dijo apostar sin nombrar la cuota minima que lo justifica.")
-        elif cuota < cuota_minima:
-            # Se contradice sola: el precio real no llega al piso que ella misma puso.
-            veredicto = "mirar"
-            banderas.append(f"El mejor precio ({cuota:.2f}) no llega a la cuota minima "
-                            f"que ella misma pidio ({cuota_minima:.2f}).")
-
-    p_lado = p_a if (lado or pick) == "a" else 1 - p_a
-    ev = None if cuota is None else p_lado * cuota - 1
-    return {"vale_la_pena": veredicto, "lado": lado, "cuota_minima": cuota_minima,
-            "motivo": motivo, "cuota": cuota, "casa": casa, "ev": ev,
-            "cumple_regla": bool(ev is not None and ev >= _ev_minimo())}
+    if veredicto.get("veredicto") == "parejo":
+        return dict(VACIO)
+    lado = veredicto["pick"]
+    cuota, casa = precios(dossier).get(lado, (None, None))
+    if cuota is None:
+        return dict(VACIO)
+    p_a = veredicto["p_a"]
+    ev = (p_a if lado == "a" else 1 - p_a) * cuota - 1
+    return {"lado": lado, "cuota": cuota, "casa": casa, "ev": ev,
+            "cumple_regla": ev >= _ev_minimo()}
 
 
 def validar(bruto, dossier):
@@ -240,8 +216,17 @@ def validar(bruto, dossier):
                         "pick para que siga a la probabilidad.")
         pick = "a" if p_a > 0.5 else "b"
 
-    apuesta = _apuesta(bruto.get("apuesta"), pick, p_a, dossier, banderas)
+    veredicto = _enum(bruto.get("veredicto"), VEREDICTOS, "definido")
+    # Decir "pareja" y despues poner 82% es querer las dos cosas. Manda la palabra, que es
+    # la que se muestra y la que decide si la pick se registra; la probabilidad se corrige
+    # hacia el centro y queda escrito.
+    if veredicto == "parejo" and abs(p_a - 0.5) > 0.15:
+        banderas.append(f"Dijo que la pelea esta pareja pero puso p_a={p_a:.2f}. Se "
+                        "acerco al 50% para que la probabilidad diga lo mismo.")
+        p_a = 0.5 + (0.15 if p_a > 0.5 else -0.15)
+
     return {
+        "veredicto": veredicto,
         "pick": pick,
         "p_a": p_a,
         "confianza": _enum(bruto.get("confianza"), CONFIANZAS, "baja"),
@@ -249,7 +234,6 @@ def validar(bruto, dossier):
         "razones": _razones(bruto.get("razones")),
         "factores_no_modelables": _factores(bruto.get("factores_no_modelables")),
         "contra": _texto(bruto.get("contra")),
-        "apuesta": apuesta,
         "banderas": banderas,
     }
 

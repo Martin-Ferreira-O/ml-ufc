@@ -512,11 +512,10 @@ def picks_pelea(fila):
         st.caption(f"**{pick['predictor']}** → {pick['eligio']} · {historial}")
 
 
-IA_COLOR = {"si": "green", "mirar": "orange", "no": "gray"}
-IA_ICONO = {"si": ":material/check_circle:", "mirar": ":material/visibility:",
-            "no": ":material/do_not_disturb_on:"}
-IA_FUENTE = {"modelo": "Modelo", "mercado": "Mercado", "estadistica": "Estadística",
-             "inteligencia": "Inteligencia", "tipsters": "Predictores",
+IA_COLOR = {"definido": "green", "parejo": "gray"}
+IA_ICONO = {"definido": ":material/check_circle:", "parejo": ":material/balance:"}
+IA_FUENTE = {"record": "Récord", "estadistica": "Estadística", "estilo": "Estilos",
+             "historial": "Historial", "inteligencia": "Inteligencia",
              "contexto": "Contexto"}
 
 
@@ -525,43 +524,48 @@ def ia_disponible():
     return analista.hay_api()
 
 
-def ia_badge(fila, pelea):
-    """El badge de una linea: a quien eligio la IA y con cuanta confianza."""
+def _ia_lado(fila, pelea):
     quien = pelea["a"] if fila["pick"] == "a" else pelea["b"]
     p = float(fila["p_a_ia"])
-    p_lado = p if fila["pick"] == "a" else 1 - p
-    st.badge(f"IA: {quien} {p_lado:.0%} · confianza {fila['confianza']}",
-             color=IA_COLOR.get(fila["apostar"], "gray"),
-             icon=":material/smart_toy:")
+    return quien, (p if fila["pick"] == "a" else 1 - p)
 
 
-def ia_apuesta(fila, pelea):
-    """Lo que la IA dice sobre apostar, con el precio que lo justifica.
+def ia_badge(fila, pelea):
+    """El badge de una linea: a quien se inclina la IA y con cuanta confianza."""
+    quien, p = _ia_lado(fila, pelea)
+    veredicto = fila.get("veredicto") or "definido"
+    texto = (f"IA: pareja, se inclina por {quien} {p:.0%}" if veredicto == "parejo"
+             else f"IA: {quien} {p:.0%} · confianza {fila['confianza']}")
+    st.badge(texto, color=IA_COLOR.get(veredicto, "gray"), icon=":material/smart_toy:")
 
-    El EV que se muestra lo calculo `analista.validar` en Python con la cuota real, no lo
-    dijo el modelo: un LLM multiplica mal y con confianza.
+
+def ia_veredicto(fila, pelea):
+    """El titular: a quien elige la IA, o que no elige.
+
+    El EV va abajo y aclarado. Lo calculo `analista.ev_contra_mercado` en Python DESPUES
+    del veredicto: la IA no vio ninguna cuota, y una linea que no lo diga se lee como si
+    hubiera opinado del precio.
     """
-    veredicto = fila["apostar"]
-    if veredicto == "no":
-        st.caption("La IA no ve apuesta en esta pelea.")
-        return
-    lado = fila["lado"] if fila["lado"] in ("a", "b") else fila["pick"]
-    quien = pelea["a"] if lado == "a" else pelea["b"]
-    cuota = fila["cuota_tomada"]
-    precio = "" if pd.isna(cuota) else f" a {float(cuota):.2f} en {fila['casa']}"
-    ev = "" if pd.isna(fila["ev_ia"]) else f" · EV {float(fila['ev_ia']):+.1%}"
-    if veredicto == "si":
-        st.success(f"**La IA apostaría {quien}{precio}.**{ev}", icon=IA_ICONO["si"])
+    quien, p = _ia_lado(fila, pelea)
+    if (fila.get("veredicto") or "definido") == "parejo":
+        st.info(f"**La IA no ve un favorito claro.** Se inclina apenas por {quien} "
+                f"({p:.0%}), pero considera la pelea pareja.", icon=IA_ICONO["parejo"])
     else:
-        st.info(f"**La IA lo pondría en seguimiento: {quien}{precio}.**{ev}",
-                icon=IA_ICONO["mirar"])
+        st.success(f"**La IA elige a {quien} ({p:.0%}).** Confianza "
+                   f"{fila['confianza']}.", icon=IA_ICONO["definido"])
+
+    cuota, ev = fila.get("cuota_tomada"), fila.get("ev_ia")
+    if pd.notna(cuota) and pd.notna(ev):
+        st.caption(f"Contra el mejor precio publicado ({float(cuota):.2f} en "
+                   f"{fila['casa']}) esa probabilidad da un EV de {float(ev):+.1%}. "
+                   "Lo calculó el código después; la IA nunca vio esta cuota.")
 
 
 def ia_tarjeta(fila, pelea):
     """El razonamiento detras del veredicto. No abre expander: la dibuja el de la pelea.
 
-    El veredicto de apuesta no se repite aca: lo dibuja `ia_apuesta` afuera, porque es el
-    titular y tiene que verse sin desplegar nada.
+    El titular no se repite aca: lo dibuja `ia_veredicto` afuera, porque tiene que verse
+    sin desplegar nada.
     """
     informe = fila.get("informe")
     if not informe:
@@ -577,7 +581,7 @@ def ia_tarjeta(fila, pelea):
 
     if informe.get("factores_no_modelables"):
         # Este bloque es el motivo de existir de toda la capa: lo que ninguna columna ve.
-        st.markdown("**Lo que el modelo no puede ver**")
+        st.markdown("**Lo que ninguna estadística captura**")
         for f in informe["factores_no_modelables"]:
             quien = pelea["a"] if f["favorece"] == "a" else pelea["b"]
             st.caption(f"**{f['titulo']}** · favorece a {quien} · {f['certeza']} — "

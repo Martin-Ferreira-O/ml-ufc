@@ -159,7 +159,8 @@ def _boton_ia(evento):
     hay_ia = analista.hay_api()
     disparar = st.button(
         "Analizar con IA", icon=":material/smart_toy:", disabled=not hay_ia,
-        help=("Un prompt por pelea con todo lo que el repo sabe de los dos peleadores. "
+        help=("Un prompt por pelea con el historial deportivo de los dos —récord, cómo "
+              "gana y cómo pierde cada uno, sus últimas peleas— y sin cuotas ni mercado. "
               "Cada pelea se analiza una vez por día: volver a apretar no vuelve a "
               "gastar." if hay_ia else
               "Falta GEMINI_API_KEY en el entorno o en el archivo .env."))
@@ -352,8 +353,8 @@ def render(modelo, estado, pagina_predictores=None):
             # El veredicto de la IA va en su propio desplegable y no adentro del de
             # picks: Streamlit no anida expanders, y ademas es lo que mas se abre.
             if (ia := veredictos.get((pelea["a"], pelea["b"]))) is not None:
-                comunes.ia_apuesta(ia, pelea)
-                with st.expander("Consenso IA", icon=":material/smart_toy:"):
+                comunes.ia_veredicto(ia, pelea)
+                with st.expander("Análisis de la IA", icon=":material/smart_toy:"):
                     comunes.ia_tarjeta(ia, pelea)
 
             # Cuando no hay ni una pick ni un informe no se dibuja nada: una cartelera a

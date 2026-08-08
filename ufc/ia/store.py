@@ -12,6 +12,11 @@ estan, muestra la fila numerica y lo dice.
 
 La clave de idempotencia es (evento, a, b, run_day), igual que `intel.store.ya_revisado`:
 una pelea se analiza una vez por dia, y abrir la app veinte veces no cuesta nada.
+
+`prompt_v` separa cohortes. La v1 le mostraba a la IA la probabilidad del modelo, el
+precio del mercado y las picks humanas; la v2 es ciega a todo eso. Son dos predictores
+distintos con el mismo nombre, y promediarlos daria un numero que no describe a ninguno.
+Las filas viejas quedan legibles con la columna vacia, que es exactamente lo que son.
 """
 
 import json
@@ -26,9 +31,9 @@ INFORMES = rutas.DATOS / "ia_informes"
 
 COLS = [
     "ts_utc", "run_day", "evento", "fecha_evento", "inicio_utc", "a", "b", "peso",
-    "modelo_ia", "huella",
-    "pick", "p_a_ia", "confianza", "metodo_probable",
-    "apostar", "lado", "cuota_tomada", "casa", "ev_ia", "cumple_regla",
+    "modelo_ia", "prompt_v", "huella",
+    "veredicto", "pick", "p_a_ia", "confianza", "metodo_probable",
+    "lado", "cuota_tomada", "casa", "ev_ia", "cumple_regla",
     "p_a_modelo", "p_a_con_odds", "p_a_mercado", "cuota_a", "cuota_b",
     "n_razones", "n_factores", "prompt_tokens", "output_tokens",
 ]
@@ -50,7 +55,7 @@ def leer(evento=None):
     """-> DataFrame de `ia_consenso.csv`, filtrado por evento si se pide."""
     if not ARCHIVO.exists():
         return pd.DataFrame(columns=COLS)
-    df = pd.read_csv(ARCHIVO)
+    df = pd.read_csv(ARCHIVO, dtype={"prompt_v": str})
     for c in COLS:
         if c not in df:
             df[c] = None  # columnas nuevas van al final y las filas viejas siguen leibles
@@ -68,8 +73,10 @@ def ya_analizada(evento, a, b, run_day):
 
 def fila_desde(veredicto, dossier, *, run_day, modelo_ia, usage=None, ts=None):
     """-> dict con las columnas del CSV. Solo numeros y enums: el texto va al JSON."""
+    from ufc.ia import analista
+
     p, mercado, modelo = dossier["pelea"], dossier["mercado"], dossier["modelo"]
-    apuesta = veredicto["apuesta"]
+    apuesta = analista.ev_contra_mercado(veredicto, dossier)
     consenso = mercado.get("consenso") or {}
     usage = usage or {}
     return {
@@ -78,16 +85,20 @@ def fila_desde(veredicto, dossier, *, run_day, modelo_ia, usage=None, ts=None):
         "evento": p["evento"], "fecha_evento": p["fecha"],
         "inicio_utc": p.get("inicio_utc") or "",
         "a": p["a"], "b": p["b"], "peso": p["peso"],
-        "modelo_ia": modelo_ia, "huella": dossier_mod.huella(dossier),
+        "modelo_ia": modelo_ia, "prompt_v": dossier_mod.VERSION,
+        "huella": dossier_mod.huella(dossier),
+        "veredicto": veredicto.get("veredicto", "definido"),
         "pick": veredicto["pick"], "p_a_ia": veredicto["p_a"],
         "confianza": veredicto["confianza"],
         "metodo_probable": veredicto["metodo_probable"] or "",
-        "apostar": apuesta["vale_la_pena"], "lado": apuesta["lado"] or "",
-        "cuota_tomada": apuesta["cuota"], "casa": apuesta["casa"] or "",
-        "ev_ia": apuesta["ev"], "cumple_regla": bool(apuesta["cumple_regla"]),
+        # Lo calculo Python despues del veredicto, con la cuota real. La IA no vio nada
+        # de esta fila: por eso su EV y su CLV se pueden medir contra el mercado.
+        "lado": apuesta["lado"] or "", "cuota_tomada": apuesta["cuota"],
+        "casa": apuesta["casa"] or "", "ev_ia": apuesta["ev"],
+        "cumple_regla": bool(apuesta["cumple_regla"]),
         # El snapshot de las tres probabilidades del momento en que opino. Sin esto no se
         # puede comparar log loss contra modelo y mercado sobre las mismas peleas: las
-        # cuotas de manana ya no son las que la IA vio.
+        # cuotas de manana ya no son las que habia cuando la IA opino.
         "p_a_modelo": modelo.get("p_a"),
         "p_a_con_odds": modelo.get("p_a_con_odds"),
         "p_a_mercado": mercado.get("p_a_mercado") or consenso.get("p_a"),
@@ -149,19 +160,25 @@ def veredictos(evento):
 
 
 def resumen():
-    """-> dict con la ultima corrida: evento, cobertura y tokens. Para `--status`."""
+    """-> dict con la ultima corrida: evento, cobertura y tokens. Para `--status`.
+
+    Filtra por `prompt_v` ademas de por evento y run_day. Sin eso, reanalizar media
+    cartelera con el prompt nuevo daria un status que suma peras con manzanas: las filas
+    de la v1 no tienen ni `veredicto` ni EV comparable.
+    """
     df = leer()
     if not len(df):
         return None
     ultimo = df.sort_values(["run_day", "ts_utc"]).iloc[-1]
     mismo = df[(df["evento"] == ultimo["evento"]) &
-               (df["run_day"].astype(str) == str(ultimo["run_day"]))]
+               (df["run_day"].astype(str) == str(ultimo["run_day"])) &
+               (df["prompt_v"].astype(str) == str(ultimo["prompt_v"]))]
     return {
         "evento": ultimo["evento"], "fecha_evento": ultimo["fecha_evento"],
         "run_day": str(ultimo["run_day"]), "modelo_ia": ultimo["modelo_ia"],
         "peleas": len(mismo),
-        "apostar_si": int((mismo["apostar"] == "si").sum()),
-        "apostar_mirar": int((mismo["apostar"] == "mirar").sum()),
+        "parejas": int((mismo["veredicto"] == "parejo").sum()),
+        "con_ev": int((pd.to_numeric(mismo["ev_ia"], errors="coerce") > 0).sum()),
         "prompt_tokens": int(pd.to_numeric(mismo["prompt_tokens"],
                                            errors="coerce").fillna(0).sum()),
         "output_tokens": int(pd.to_numeric(mismo["output_tokens"],

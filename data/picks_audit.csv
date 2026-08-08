@@ -308,3 +308,42 @@ ts_utc,accion,revisor,predictor,evento,fecha_evento,a,b,pick,metodo,round,confia
 2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,b,,,,manual,True
 2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
 2026-08-06T22:20:20.672069+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,,,,manual,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,dec,,0.62,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,dec,,0.85,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,dec,,0.71,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,dec,,0.78,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,ko,,0.68,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,ko,,0.55,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,dec,,0.72,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,dec,,0.6,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,dec,,0.6,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,ko,,0.72,ia,True
+2026-08-08T02:24:15.458447+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,a,dec,,0.63,ia,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,b,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+2026-08-08T02:47:26.150694+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,,,,manual,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,dec,,0.72,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,dec,,0.6,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,dec,,0.6,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,a,dec,,0.63,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,dec,,0.65,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,dec,,0.64,ia,True
+2026-08-08T03:19:01.511769+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,ko,,0.7,ia,True
+2026-08-08T03:19:01.512178+00:00,pick_voided,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Diego Ferreira,Billy Quarantillo,a,dec,nan,0.62,ia,True
+2026-08-08T03:19:01.512178+00:00,pick_voided,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,dec,nan,0.71,ia,True
+2026-08-08T03:19:01.512178+00:00,pick_voided,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,ko,nan,0.55,ia,True
+2026-08-08T03:19:01.512178+00:00,pick_voided,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,ko,nan,0.72,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,dec,,0.72,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,dec,,0.6,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,dec,,0.6,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,a,dec,,0.63,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,dec,,0.65,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,dec,,0.64,ia,True
+2026-08-08T03:43:40.450596+00:00,pick_revised,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,ko,,0.7,ia,True

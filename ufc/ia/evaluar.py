@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from ufc import nombres
-from ufc.ia import store
+from ufc.ia import dossier, store
 from ufc.modelo import apuesta, devig, train
 from ufc.registro import ledger, predictores
 
@@ -45,15 +45,23 @@ def _log_loss(p, y):
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
-def evaluar():
+def evaluar(prompt_v=dossier.VERSION):
     """-> DataFrame con una fila por pelea analizada que ya tiene resultado.
 
-    Columnas clave: `y` (gano A), `acierto`, `ll_ia` / `ll_modelo` / `ll_mercado`, y para
-    las filas con `apostar == "si"`, `ev_al_cierre`.
+    Columnas clave: `y` (gano A), `acierto`, `ll_ia` / `ll_modelo` / `ll_mercado` y
+    `ev_al_cierre`.
+
+    Solo la cohorte de `prompt_v`. Las filas de la v1 salieron de un prompt que veia el
+    modelo, el mercado y las picks humanas: promediarlas con estas daria el rendimiento de
+    un predictor que no existe. `prompt_v=None` las trae todas, para poder compararlas.
     """
     df = store.leer()
     if not len(df):
         return pd.DataFrame()
+    if prompt_v is not None:
+        df = df[df["prompt_v"].astype(str) == str(prompt_v)]
+        if not len(df):
+            return pd.DataFrame()
 
     ganadores = _resultados()
     df = df.copy()
@@ -79,14 +87,20 @@ def evaluar():
 
 
 def _clv(df):
-    """EV de cada apuesta de la IA medido contra la linea de cierre. NaN si no aplica.
+    """EV de la pick de la IA contra la linea de cierre. NaN si no hay precio.
+
+    Se mide sobre TODA pick con precio registrado, no sobre un subconjunto que la IA haya
+    elegido apostar — no elige: es ciega al mercado. Y por eso mismo esto es la prueba
+    mas limpia que tiene el proyecto: si una lectura puramente deportiva, hecha sin ver el
+    precio, le gana sistematicamente a la linea de cierre, esa ventaja es real. Si no, la
+    capa no aporta sobre el mercado y el numero lo va a decir.
 
     Reusa el corte estricto de `ledger._limite` (la hora real de inicio del evento, con
     fallback a fecha+1 dia para las filas viejas): un tick posterior al primer campanazo
     es una cuota EN VIVO y no la linea de cierre.
     """
     salida = pd.Series(np.nan, index=df.index)
-    apostadas = df[(df["apostar"] == "si") & df["cuota_tomada"].notna()]
+    apostadas = df[df["cuota_tomada"].notna() & df["lado"].isin(["a", "b"])]
     if not len(apostadas):
         return salida
 
@@ -126,8 +140,8 @@ def resumen(df=None):
         return "Todavia no hay ninguna pelea analizada por IA con resultado cargado."
 
     clusters = df["evento"].to_numpy()
-    lineas = [f"Cohorte IA: {len(df)} peleas resueltas de "
-              f"{df['evento'].nunique()} carteleras.", ""]
+    lineas = [f"Cohorte IA (prompt v{dossier.VERSION}, ciego al mercado): {len(df)} "
+              f"peleas resueltas de {df['evento'].nunique()} carteleras.", ""]
     lineas.append(f"  acierto de la pick     {df['acierto'].mean():.1%} "
                   f"({int(df['acierto'].sum())}/{len(df)})")
 
@@ -144,16 +158,24 @@ def resumen(df=None):
         pareado = df[col] - df["ll_ia"]
         lineas.append(_linea(nombre, pareado, clusters))
 
-    apostadas = df[df["apostar"] == "si"]
-    lineas += ["", f"apuestas que la IA marco como 'si': {len(apostadas)}"]
-    if len(apostadas):
-        clv = apostadas["ev_al_cierre"]
-        lineas.append(_linea("EV al cierre", clv, apostadas["evento"].to_numpy()))
+    parejas = int((df["veredicto"] == "parejo").sum())
+    lineas += ["", f"peleas que la IA declaro parejas: {parejas} de {len(df)} "
+                   "(no se registran como pick)"]
+
+    con_precio = df[df["ev_al_cierre"].notna()]
+    lineas += ["", "CLV de la pick contra la linea de cierre — la IA nunca vio el precio,",
+               "asi que esto mide si su lectura deportiva le gana al mercado:"]
+    if len(con_precio):
+        clv = con_precio["ev_al_cierre"]
+        lineas.append(_linea("EV al cierre", clv, con_precio["evento"].to_numpy()))
         finito = clv[np.isfinite(clv)]
         if len(finito) >= 2:
             falta = apuesta.n_para_detectar(0.02, float(np.std(finito, ddof=1)) or 0.04)
-            lineas.append(f"  para concluir un CLV de +2% harian falta ~{falta} apuestas "
+            lineas.append(f"  para concluir un CLV de +2% harian falta ~{falta} peleas "
                           f"(hay {len(finito)} con cierre)")
+    else:
+        lineas.append("  sin ninguna pelea con precio de apertura y de cierre todavia")
+
     lineas += ["",
                "La cohorte del gate (`data/ledger.csv`) no se toca: esto se mide aparte."]
     return "\n".join(lineas)

@@ -254,3 +254,20 @@ FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie M
 FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Jessie Rosas,b,,,,manual,True
 FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
 FaceOff MMA,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Amanda Lemos,Alexia Thainara,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Louie Sutherland,José Montanha,a,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Manoel Sousa,Richie Miranda,a,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,b,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,,,,manual,True
+JuanCarlosUfc,UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,,,,manual,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Juliana Miller,Ravena Oliveira,a,dec,,0.72,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Gigi Canuto,Carol Foro,b,dec,,0.6,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Bruno Lopes,Diyar Nurgozhay,b,dec,,0.6,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Miles Johns,Gianni Vazquez,a,dec,,0.63,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Darren Elkins,Yadier del Valle,b,dec,,0.65,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Steven Asplund,Guilherme Pat,a,dec,,0.64,ia,True
+IA (Gemini),UFC Fight Night: Gamrot vs Salkilld,2026-08-08,Billy Ray Goff,Ty Miller,b,ko,,0.7,ia,True

@@ -1,4 +1,9 @@
-"""Recorre una cartelera, arma un prompt por pelea y guarda el veredicto de la IA.
+"""Recorre una cartelera, arma un prompt deportivo por pelea y guarda el veredicto.
+
+El prompt es ciego al mercado (ver `dossier`): la IA opina de la pelea, no del precio.
+Las cuotas se consultan igual, pero para el registro y para el EV que calcula Python
+despues del veredicto, nunca para el prompt.
+
 
 Uso:
     python -m ufc.ia.consenso --dry-run --pelea 1   # el prompt, sin gastar un peso
@@ -17,7 +22,7 @@ import sys
 
 from ufc import nombres
 from ufc.datos import betano, cartelera, oddsapi
-from ufc.ia import analista, dossier as dossier_mod, store
+from ufc.ia import analista, dossier as dossier_mod, historial, store
 from ufc.intel import store as intel_store
 from ufc.modelo import predict
 from ufc.registro import predictores
@@ -54,21 +59,16 @@ def contexto(evento, *, con_red=True):
     """Todo lo que se consulta UNA vez por cartelera, no una vez por pelea.
 
     Catorce peleas serian catorce consultas a Betano y catorce a The Odds API si esto
-    viviera adentro del loop.
+    viviera adentro del loop — y catorce lecturas de las 17 mil filas del historial.
+
+    Las cuotas y el modelo siguen aca aunque no vayan al prompt: son el snapshot de
+    control que guarda `store.fila_desde` para poder medir a la IA despues.
     """
     modelo, estado = predict.cargar()
-    tabla = betano.cuotas() if con_red else {}
-    multi = oddsapi.cuotas() if con_red else {}
-    picks = predictores.leer(evento["evento"])
-    if len(picks):
-        # La IA no puede ver su propia pick anterior como si fuera la de un tercero: se
-        # estaria citando a si misma y su "consenso" dejaria de serlo.
-        picks = picks[picks["predictor"] != IA_PREDICTOR]
-    confiabilidad = predictores.confiabilidad()
-    precision = {r["predictor"]: {"acierto": r["acierto"], "total": r["total"]}
-                 for _, r in confiabilidad.iterrows()} if len(confiabilidad) else {}
-    return {"modelo": modelo, "estado": estado, "betano": tabla, "multi": multi,
-            "picks": picks, "precision": precision,
+    return {"modelo": modelo, "estado": estado,
+            "betano": betano.cuotas() if con_red else {},
+            "multi": oddsapi.cuotas() if con_red else {},
+            "historial": historial.cargar(),
             "intel": _intel_del_evento(evento) if con_red else {}}
 
 
@@ -83,15 +83,14 @@ def dossier_de(pelea, evento, ctx, indice, total):
     prediccion = cartelera.predecir(pelea, ctx["modelo"], ctx["estado"], cuotas,
                                     evento["fecha"])
     metodo = predict.metodo(ctx["modelo"], *cartelera.contexto(pelea["peso"], indice == 0))
-    picks = ctx["picks"]
-    suyas = picks[(picks["a"] == pelea["a"]) & (picks["b"] == pelea["b"])] \
-        if len(picks) else picks
+    largo, stances = ctx["historial"]
+    hist = {lado: historial.resumen(pelea[lado], evento["fecha"], largo=largo,
+                                    stances=stances, estado=ctx["estado"])
+            for lado in ("a", "b")}
     return dossier_mod.armar(
         pelea, prediccion, evento, cuotas=cuotas, consenso=multi, metodo=metodo,
-        estado=ctx["estado"], intel=ctx["intel"],
-        picks=suyas.to_dict("records") if len(suyas) else [],
-        precision=ctx["precision"], manifest=ctx["modelo"].get("manifest"),
-        indice=indice, total=total)
+        estado=ctx["estado"], historial=hist, intel=ctx["intel"],
+        manifest=ctx["modelo"].get("manifest"), indice=indice, total=total)
 
 
 def sincronizar_picks(evento, con_metodo=True):
@@ -106,6 +105,10 @@ def sincronizar_picks(evento, con_metodo=True):
     for (a, b), fila in guardados.items():
         if fila["pick"] not in {"a", "b"}:
             continue
+        # Abstenerse es no registrar pick. Si la IA dijo que la pelea esta pareja, meterla
+        # igual al ranking la puntuaria por una eleccion que declaro no haber hecho.
+        if fila.get("veredicto") == "parejo":
+            continue
         p_a = float(fila["p_a_ia"])
         filas.append([IA_PREDICTOR, evento["evento"], evento["fecha"], a, b,
                       fila["pick"], (fila["metodo_probable"] or "") if con_metodo else "",
@@ -119,18 +122,22 @@ def sincronizar_picks(evento, con_metodo=True):
     return len(filas)
 
 
-def _resumen_pelea(pelea, veredicto):
+def _resumen_pelea(pelea, veredicto, dossier):
+    """Una linea por pelea: la lectura deportiva primero, el EV despues y aparte.
+
+    El EV va al final y con la aclaracion de que lo calculo Python, para que la linea no
+    se lea como si la IA hubiera opinado del precio. No lo vio.
+    """
     quien = pelea[veredicto["pick"]]
-    a = veredicto["apuesta"]
-    if a["vale_la_pena"] == "si":
-        apuesta = f"APOSTAR {pelea[a['lado']]} a {a['cuota']:.2f} en {a['casa']} " \
-                  f"(EV {a['ev']:+.1%})"
-    elif a["vale_la_pena"] == "mirar":
-        apuesta = "mirar"
+    p = veredicto["p_a"] if veredicto["pick"] == "a" else 1 - veredicto["p_a"]
+    if veredicto["veredicto"] == "parejo":
+        cabeza = f"PAREJA (se inclina por {quien} {p:.0%})"
     else:
-        apuesta = "sin apuesta"
-    return (f"{quien} {veredicto['p_a'] if veredicto['pick'] == 'a' else 1 - veredicto['p_a']:.1%}"
-            f" · confianza {veredicto['confianza']} · {apuesta}")
+        cabeza = f"{quien} {p:.1%}"
+    ev = analista.ev_contra_mercado(veredicto, dossier)
+    precio = ("" if ev["ev"] is None else
+              f" · EV {ev['ev']:+.1%} a {ev['cuota']:.2f} en {ev['casa']} (calculado aparte)")
+    return f"{cabeza} · confianza {veredicto['confianza']}{precio}"
 
 
 def ejecutar(evento, *, ctx=None, provider=None, force=False, run_day=None,
@@ -177,7 +184,7 @@ def ejecutar(evento, *, ctx=None, provider=None, force=False, run_day=None,
                 store.guardar(fila, veredicto)
                 hechas.append((pelea, veredicto, usage))
                 print(f"OK  {pelea['a']} vs {pelea['b']} — "
-                      f"{_resumen_pelea(pelea, veredicto)}", flush=True)
+                      f"{_resumen_pelea(pelea, veredicto, d)}", flush=True)
                 if progreso:
                     progreso(len(hechas) + len(errores), len(pendientes), pelea)
 
@@ -203,8 +210,8 @@ def _imprimir_status():
         print("Todavia no se analizo ninguna cartelera con IA.")
         return False
     print(f"{r['evento']} — {r['fecha_evento']} — run {r['run_day']} — {r['modelo_ia']}")
-    print(f"  {r['peleas']} peleas analizadas · {r['apostar_si']} con apuesta · "
-          f"{r['apostar_mirar']} para mirar")
+    print(f"  {r['peleas']} peleas analizadas · {r['parejas']} declaradas parejas · "
+          f"{r['con_ev']} con EV positivo (calculado aparte, la IA no vio el precio)")
     print(f"  tokens: {r['prompt_tokens']} de entrada, {r['output_tokens']} de salida")
     return True
 

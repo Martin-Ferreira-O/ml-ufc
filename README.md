@@ -72,9 +72,9 @@ Para verificar la instalación sin tocar la red: `.venv/bin/python test_app.py`.
 
 Credenciales opcionales: `ODDS_API_KEY` ([The Odds API](https://the-odds-api.com),
 consenso multi-casa), `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey),
-para leer picks, informes de inteligencia y el consenso por pelea) y `X_BEARER_TOKEN`
+para leer picks, informes de inteligencia y el análisis por pelea) y `X_BEARER_TOKEN`
 para las cuentas de X configuradas. Sin ellas la app anda igual; se omiten esas
-integraciones. `UFC_IA_MODELO` cambia el modelo de Gemini del consenso por pelea
+integraciones. `UFC_IA_MODELO` cambia el modelo de Gemini del análisis por pelea
 (default `gemini-3.5-flash`).
 
 ## Inteligencia diaria de peleadores
@@ -161,14 +161,26 @@ cp .streamlit/secrets.example.toml .streamlit/secrets.toml
 local/remota y la proxima ventana programada. El panel se actualiza solo cada cinco
 minutos; **Comprobar de nuevo** fuerza una lectura inmediata sin descargar nada.
 
-## Consenso de IA, una pelea a la vez
+## Análisis de IA, una pelea a la vez
 
 El modelo y el mercado son dos números y ninguno ve lo que no está en una columna. Esta
-capa arma **un prompt por pelea** con todo lo que el repo sabe de los dos peleadores —las
-28 features en valor absoluto, la probabilidad del modelo con sus factores, el mercado
-desvigueado y el consenso multi-casa, la distribución de método, los informes de
-inteligencia con sus citas y las picks humanas con su precisión— y pide un veredicto
-estructurado.
+capa arma **un prompt por pelea** y le pide a un LLM lo que haría un analista: leer la
+pelea. Le llega el expediente deportivo completo de los dos —las 28 features en valor
+absoluto, el récord en UFC con el desglose de **por qué vía gana y por qué vía pierde**
+cada uno, sus últimas seis peleas con rival, método, round y el Elo de ese rival, el
+stance, la distribución de método de la división y los informes de inteligencia con sus
+citas.
+
+**Y es ciega al mercado, a propósito.** No ve cuotas, ni precios, ni la probabilidad del
+modelo, ni lo que eligieron los predictores humanos. Un LLM al que le mostrás el precio
+deja de analizar la pelea y empieza a explicar el precio — y el precio ya lo tenemos. La
+pregunta que se le hace es la única que no está respondida en ninguna columna: *quién
+tiene más chances de ganar, y por qué*. El EV se calcula **después, en Python**, cruzando
+su probabilidad con la cuota real.
+
+Eso además vuelve medible algo que antes no lo era: si una lectura hecha sin ver el
+precio le gana sistemáticamente a la línea de cierre, esa ventaja es real. Si no le gana,
+el número lo va a decir en pocas apuestas — el CLV se concluye con 32, no con 19.623.
 
 ```sh
 # El prompt completo de una pelea, sin llamar a la API ni gastar un peso
@@ -189,34 +201,45 @@ estructurado.
 
 También hay un botón **Analizar con IA** en la pestaña Cartelera. Cada pelea se analiza
 una vez por día: volver a apretarlo, o abrir la app veinte veces, no dispara ninguna
-llamada extra. Un prompt real son ~1.900 tokens de entrada, así que una cartelera de 14
-peleas cuesta centavos.
+llamada extra. Un prompt real son ~2.900 tokens de entrada, así que una cartelera de 14
+peleas cuesta centavos. Ojo con el free tier de Gemini: son **20 requests por día**, o
+sea una cartelera larga entra justa y no entra dos veces.
 
-**Lo que devuelve.** Pick y probabilidad, las razones separadas por fuente, los
-**factores no modelables** —lo que ninguna columna puede capturar, que es el punto entero
-de la capa—, el mejor argumento **en contra de su propio pick**, y si a los precios
-publicados vale la pena apostar.
+**Lo que devuelve.** Pick y probabilidad, las razones separadas por fuente (récord,
+estadística, estilos, historial, inteligencia, contexto), los **factores no modelables**
+—lo que ninguna estadística puede capturar, que es el punto entero de la capa— y el mejor
+argumento **en contra de su propio pick**.
+
+**Puede no elegir.** `veredicto: "parejo"` es una respuesta de primera clase: si la
+ventaja deportiva no alcanza para separar a los dos, decirlo es mejor que inventar un
+favorito. Una pelea pareja no genera pick en `picks.csv` y no genera apuesta, aunque la
+aritmética contra el precio dé positiva. En la cartelera del 2026-08-08 la IA declaró
+parejas 5 de 8.
 
 **Nada de lo que dice se guarda tal cual.** `analista.validar` clampea la probabilidad,
 coerce los enums, descarta las razones sin fuente, corrige la pick si contradice su
-propia probabilidad, y **calcula el EV en Python** con la cuota real en vez de leerlo de
-la respuesta. La regla de "nombrá el lado, el precio y la casa" está en el prompt pero se
-aplica en código: un "sí, apostar" que no la cumple baja solo a "mirar", y sin ninguna
-cuota publicada se fuerza a "no". Es el mismo criterio que ya usa `intel/analyzer.py`
-para tirar los hallazgos sin cita.
+propia probabilidad, y si dice "pareja" con un 82% le acerca la probabilidad al centro y
+lo deja escrito en `banderas`. Es el mismo criterio que ya usa `intel/analyzer.py` para
+tirar los hallazgos sin cita.
 
 **La IA es un predictor más.** Sus picks entran a `picks.csv` con `origen="ia"`, así que
 `aciertos()` y `confiabilidad()` la miden con la misma vara —y el mismo prior Beta(5, 5)—
 que a las personas. Pero **no vota el consenso humano**: aparece como tercer confirmador
 al lado del modelo y del mercado, porque si votara, "Consenso humano" podría salir con un
-humano en minoría.
+humano en minoría. Y ahora tampoco los ve a ellos, así que su acierto medido es suyo y no
+un eco del de los demás.
 
-**Y no toca la cohorte del gate.** Sus apuestas se registran en `data/ia_consenso.csv` y
-se miden aparte con `ufc.ia.evaluar` (acierto, log loss contra modelo y mercado sobre las
-mismas peleas, y CLV contra la línea de cierre). `data/ledger.csv` —la serie
+**Y no toca la cohorte del gate.** Todo se registra en `data/ia_consenso.csv` y se mide
+aparte con `ufc.ia.evaluar` (acierto, log loss contra modelo y mercado sobre las mismas
+peleas, y CLV de la pick contra la línea de cierre). `data/ledger.csv` —la serie
 preregistrada que lee `gate.estado()`— queda intacta, y hay un check que lo verifica byte
-a byte. Son dos cohortes separadas: si en 100 apuestas la de la IA muestra CLV positivo
-con el IC95% despegado de cero, ahí sí hay un argumento para tocar `config/gate.json`.
+a byte. Son dos cohortes separadas: si en 100 peleas la de la IA muestra CLV positivo con
+el IC95% despegado de cero, ahí sí hay un argumento para tocar `config/gate.json`.
+
+**Y las cohortes tampoco se mezclan entre sí.** La columna `prompt_v` separa las
+versiones del prompt: la `v1` le mostraba a la IA el modelo, el mercado y las picks
+humanas, así que sus veredictos son los de otro predictor y `evaluar()` los deja afuera.
+Promediarlos daría el rendimiento de algo que no existe.
 
 ## Pipeline
 
@@ -266,7 +289,7 @@ ufc/
 │                       devig, pool, apuesta, gate
 ├── registro/           seguimiento del modelo, predictores, apuestas reales y banca
 ├── intel/              el bot diario de inteligencia por peleador
-├── ia/                 el consenso por pelea: dossier, analista, store, evaluar
+├── ia/                 el análisis por pelea: historial, dossier, analista, store, evaluar
 └── ui/                 comunes.py + una página por archivo (tab_*.py)
 config/gate.json        la regla de apuesta preregistrada
 ```
@@ -287,7 +310,7 @@ solo **135 KB**: los archivos que el pipeline no puede reconstruir hacia atrás.
 | `data/odds_hist.csv` | — | lo mismo pero **por casa**, vía The Odds API. Es la única fuente posible de CLV contra el mejor precio del mercado, y empieza a acumularse recién ahora. |
 | `data/picks.csv` + `_audit.csv` | 255 + 309 | picks públicos de 8 predictores de MMA, recopilados a mano, con audit log append-only. |
 | `data/resultados.csv` | 14 | ganadores cargados a mano. |
-| `data/ia_consenso.csv` | — | el veredicto de la IA por pelea con las cuotas y la inteligencia **del día en que opinó**. Solo números y enums; el razonamiento en prosa va a `data/ia_informes/` y queda fuera. Es el forward test de esta capa. |
+| `data/ia_consenso.csv` | — | el veredicto de la IA por pelea, con el snapshot del modelo y del mercado **del día en que opinó** — de control, no de insumo: la IA no vio nada de eso, y por eso su probabilidad se puede medir contra ellos. Solo números y enums; el razonamiento en prosa va a `data/ia_informes/` y queda fuera. Es el forward test de esta capa. |
 
 Lo demás queda fuera de Git a propósito, y no sólo por tamaño:
 
@@ -329,11 +352,12 @@ Lo demás queda fuera de Git a propósito, y no sólo por tamaño:
 | `ufc/modelo/apuesta.py` | La capa de decisión, en funciones puras: `ev`, `break_even`, `p_conservadora` (cota inferior), `kelly`, `stake` (Kelly fraccional con tope), `crecimiento` (log-growth, lo que Kelly maximiza de verdad), `riesgo_de_ruina`, `exposicion`, `ev_combinada`, `dependencia_necesaria` y `n_para_detectar` — la cuenta que explica por qué el criterio del proyecto es el CLV y no el ROI. | — |
 | `ufc/modelo/pool.py` | `python -m ufc.modelo.pool`. Pool logit modelo+mercado con los pesos ajustados prequencialmente y sin intercepto (conserva `p(A,B) + p(B,A) = 1`). Es el estimador de mínima varianza para “¿el modelo aporta algo sobre el precio?”. Medido: **no concluyente** contra el mercado solo. | — |
 | `ufc/modelo/gate.py` + `config/gate.json` | La regla de apuesta **preregistrada** y el código que la evalúa contra el CLV real del ledger. `estado()` devuelve autorizado/motivo/n/IC y cuánto falta. `predict.apuestas_automaticas()` se deriva de acá en vez de ser una constante: misma respuesta, pero auditable y refutable. | — |
-| `ufc/ia/dossier.py` | Arma y renderiza el prompt de una pelea: las 28 features de los dos peleadores en **valor absoluto** (`features.csv` guarda diferencias, y "elo +84" no se puede leer sin saber si son 1500 contra 1416 o 2100 contra 2016), el modelo con sus factores y **su propia calibración leída del manifest** —no escrita a mano, que envejece con el primer re-entrenamiento—, el mercado, el método, la inteligencia delimitada como contenido no confiable, las picks humanas y las banderas de lo que falta. Es puro y sin red: el prompt entero se testea offline, y `--dry-run` lo imprime. | — |
-| `ufc/ia/analista.py` | El esquema de respuesta y `validar()`, que es donde vive el trabajo: clampeo, coerción de enums, descarte de razones sin fuente, corrección de la pick cuando contradice su propia probabilidad, y **el EV calculado en Python** con la cuota real. La regla de "nombrá el lado, el precio y la casa" se aplica acá, no en el prompt: un "sí" que no la cumple baja a "mirar", y sin cuota publicada se fuerza a "no". | — |
-| `ufc/ia/store.py` | `data/ia_consenso.csv` (numérico, versionado) y `data/ia_informes/` (prosa, fuera de git). Idempotencia por `(evento, a, b, run_day)`: una pelea se analiza una vez por día, y es lo único que evita que un rerun de Streamlit multiplique el costo. | `data/ia_consenso.csv` |
+| `ufc/ia/historial.py` | El historial deportivo que ninguna columna promediada da: récord en UFC, **por qué vía gana y por qué vía pierde** cada uno, y las últimas seis peleas con rival, método, round y el Elo de ese rival. Sale de `data/raw/ufc_fight_results.csv` y corta en la fecha del evento, la misma regla anti-leakage que respeta `predict._snapshot`. Es la diferencia entre "gana el 70%" y "nunca lo noquearon en 13 peleas y sus derrotas fueron por decisión contra top-5". | — |
+| `ufc/ia/dossier.py` | Arma y renderiza el prompt de una pelea: las 28 features de los dos en **valor absoluto** (`features.csv` guarda diferencias, y "elo +84" no se puede leer sin saber si son 1500 contra 1416 o 2100 contra 2016), el récord y el historial, el método de la división, la inteligencia delimitada como contenido no confiable y las banderas de lo que falta. **Calcula las secciones de modelo y mercado pero no las escribe**: alimentan el snapshot de control de `store.fila_desde`. El registro ve el precio; el prompt no. Es puro y sin red: el prompt entero se testea offline, y `--dry-run` lo imprime. | — |
+| `ufc/ia/analista.py` | El esquema de respuesta y `validar()`, que es donde vive el trabajo: clampeo, coerción de enums, descarte de razones sin fuente, corrección de la pick cuando contradice su propia probabilidad, y el ajuste de la probabilidad cuando dice "pareja" y pone 82%. `ev_contra_mercado()` calcula el EV **en Python y después del veredicto**, con una cuota que la IA nunca vio. | — |
+| `ufc/ia/store.py` | `data/ia_consenso.csv` (numérico, versionado) y `data/ia_informes/` (prosa, fuera de git). Idempotencia por `(evento, a, b, run_day)`: una pelea se analiza una vez por día, y es lo único que evita que un rerun de Streamlit multiplique el costo. `prompt_v` separa las cohortes de cada versión del prompt. | `data/ia_consenso.csv` |
 | `ufc/ia/consenso.py` | `python -m ufc.ia.consenso`. Recorre la cartelera, arma un dossier por pelea, llama a Gemini con reintentos y guarda. Vuelca las picks a `picks.csv` como `IA (Gemini)` con `origen="ia"`. `--dry-run` imprime el prompt sin llamar a la API. | `data/ia_consenso.csv`, `data/picks.csv` |
-| `ufc/ia/evaluar.py` | `python -m ufc.ia.evaluar`. Lo que hace refutable a toda la capa: acierto de la pick, log loss de la IA contra modelo y mercado **sobre las mismas peleas**, y `ev_al_cierre` de sus apuestas con IC95% clusterizado por evento. Deliberadamente **no escribe en `data/ledger.csv`**: esa es la cohorte preregistrada que lee `gate.estado()` y mezclarle una segunda población la arruinaría. | — |
+| `ufc/ia/evaluar.py` | `python -m ufc.ia.evaluar`. Lo que hace refutable a toda la capa: acierto de la pick, log loss de la IA contra modelo y mercado **sobre las mismas peleas**, y `ev_al_cierre` de cada pick con IC95% clusterizado por evento. El CLV se mide sobre **todas** las picks porque la IA es ciega al precio: no elige cuáles apostar, y por eso su lectura se puede comparar limpiamente contra la línea de cierre. Deliberadamente **no escribe en `data/ledger.csv`**: esa es la cohorte preregistrada que lee `gate.estado()` y mezclarle una segunda población la arruinaría. | — |
 | `ufc/registro/banca.py` | La banca declarada, aparte de `apuestas.csv` porque cambia con depósitos y retiros, no con cada apuesta. Es el denominador de todo staking: sin banca, un importe es un número y no una decisión de riesgo. | `data/banca.json` |
 | `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable, declara la banca, muestra el stake que correspondería y el estado del gate, y expone la matemática real de una combinada; **Seguimiento** conserva separado el forward test hipotético con el CLV y su IC95%; **Backtest** muestra la grilla de umbrales, el bankroll, el staking, el drawdown y los segmentos que produce `ufc/modelo/backtest.py`. Cartelera y Matchup mantienen el detalle del modelo y mercado. | — |
 | `test_app.py` | `python test_app.py`. Además de simetría, fuentes, ledger y UI, verifica taxonomía/settlement, formatos antiguos, bootstrap clusterizado, manifiesto con hashes, no-bet por defecto, auditoría de revisiones y navegación real a Pasados → Ganadores. `check_devig` (los cuatro métodos suman 1 y son antisimétricos), `check_staking` (Kelly contra valores a mano, el máximo del crecimiento cae exactamente en `f*`, la ruina es monótona en la fracción, el vig se compone en la combinada), `check_pool` (antisimetría exacta y piso en el mercado) y `check_gate` (cerrado sin muestra; abre solo con IC limpio **y** el `n` preregistrado). Los ocho `check_ia_*` cubren la capa de IA con fixtures: el prompt completo sin red, los cinco caminos de degradación de `validar()`, la idempotencia del store, que el CSV versionado no lleve texto libre, que la IA se mida en `aciertos()` pero **no** vote el consenso humano, y que `evaluar()` deje `data/ledger.csv` byte a byte igual. No toca la red. | — |
