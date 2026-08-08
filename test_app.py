@@ -633,6 +633,78 @@ def check_apuestas():
         predictores.RESULTADOS = resultados
 
 
+def check_cartel():
+    """El cartel: una caja por pelea y en su orden, y sin romperse por lo que falta."""
+    import pathlib
+    import tempfile
+
+    from PIL import Image
+
+    from ufc import rutas
+    from ufc.datos import fotos
+    from ufc.ui import cartel
+
+    assert cartel.peso_es("W Strawweight") == "COMBATE DE PESO PAJA FEMENINO"
+    assert cartel.peso_es("Light Heavyweight") == "COMBATE DE PESO SEMICOMPLETO"
+    assert cartel.peso_es("Catch Weight") == "COMBATE DE CATCH WEIGHT"   # sin traduccion
+    assert cartel.peso_es("") == ""
+    # Las particulas van pegadas al apellido: el cartel oficial escribe DEL VALLE.
+    assert cartel.apellido("Yadier del Valle") == "DEL VALLE"
+    assert cartel.apellido("Billy Ray Goff") == "GOFF"
+    assert cartel.apellido("Shevchenko") == "SHEVCHENKO"
+
+    peleas = cartelera._parsear(CARTELERA)[0]["peleas"]
+    # Ocho peleas para que el plano tenga que abrir mas de una fila.
+    peleas = peleas + [{"peso": "Bantamweight", "a": f"Uno {i}", "b": f"Dos {i}"}
+                       for i in range(5)]
+    evento = {"evento": "UFC 999: Test", "fecha": "2026-08-15", "peleas": peleas}
+    preds = [{"p_a": 0.6, "p_b": 0.4} for _ in peleas]
+    preds[1] = {"error": "sin historial en UFC"}      # un debut va sin barra, no sin pelea
+
+    carteles, ruta_real = rutas.CARTELES, fotos.ruta
+    bandera_real = fotos.bandera
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            base = pathlib.Path(d)
+            rutas.CARTELES = base / "carteles"
+            foto = base / "foto.png"
+            Image.new("RGBA", (460, 700), (120, 40, 40, 255)).save(foto)
+            bandera = base / "bandera.png"
+            Image.new("RGBA", (60, 40), (0, 90, 200, 255)).save(bandera)
+            # Solo el primero tiene foto: el resto cae al monograma, que es lo que le pasa
+            # a los debutantes de verdad. Sin red: `bandera` no llega a pedir nada.
+            fotos.ruta = lambda n: foto if n == peleas[0]["a"] else None
+            fotos.bandera = lambda url: bandera if url else None
+
+            archivo, cajas = cartel.generar(evento, preds)
+            assert archivo.exists() and Image.open(archivo).width == cartel.ANCHO
+            assert len(cajas) == len(peleas), cajas
+            for x, y, w, h in cajas:
+                assert 0 <= x < x + w <= 1 and 0 <= y < y + h <= 1, (x, y, w, h)
+            # El indice de la caja ES el indice de la pelea: eso solo se sostiene si el
+            # plano va de arriba a abajo y de izquierda a derecha, sin cajas encimadas.
+            for i, (x, y, w, h) in enumerate(cajas):
+                for x2, y2, w2, h2 in cajas[i + 1:]:
+                    assert not (x < x2 + w2 and x2 < x + w
+                                and y < y2 + h2 and y2 < y + h), (i, cajas)
+                    assert (y2, x2) > (y, x), (i, cajas)
+
+            # Misma cartelera, mismo archivo: no se vuelve a componer.
+            sello = archivo.stat().st_mtime_ns
+            assert cartel.generar(evento, preds)[0] == archivo
+            assert archivo.stat().st_mtime_ns == sello, "recompuso un cartel igual"
+
+            # Cambia una probabilidad: cartel nuevo y el viejo se va, que si no queda uno
+            # por cada vez que Betano movio un precio.
+            preds[0] = {"p_a": 0.9, "p_b": 0.1}
+            otro, _ = cartel.generar(evento, preds)
+            assert otro != archivo and otro.exists(), otro
+            assert list(rutas.CARTELES.glob("*.png")) == [otro], \
+                list(rutas.CARTELES.glob("*.png"))
+    finally:
+        rutas.CARTELES, fotos.ruta, fotos.bandera = carteles, ruta_real, bandera_real
+
+
 def check_cartelera():
     """Parseo de la cartelera y prediccion de peleas que pueden no ser predecibles."""
     import pathlib
@@ -691,7 +763,7 @@ def check_app():
     from streamlit.testing.v1 import AppTest
 
     from ufc.registro import apuestas, ledger, predictores
-    from ufc.ui import comunes, tab_cartelera
+    from ufc.ui import comunes
 
     cartelera_dos = copy.deepcopy(CARTELERA["events"][0])
     cartelera_dos["name"] = "UFC Prueba 2"
@@ -792,14 +864,18 @@ def check_app():
         assert not pagina.exception, (titulo, [e.value for e in pagina.exception])
         assert titulo in [t.value for t in pagina.title], (titulo, [t.value for t in pagina.title])
 
-    # El cartel del evento dibuja la foto del que la tiene y las iniciales del que no.
-    # Las dos salen por st.html, que es donde hay que buscarlas.
+    # El modal de una pelea dibuja la foto del que la tiene y las iniciales del que no.
+    # Las dos salen por st.html, que es donde hay que buscarlas. Se abre por session_state
+    # porque un componente no se puede clickear desde AppTest; el clic del cartel escribe
+    # exactamente ese mismo indice.
     cartel = AppTest.from_function(_render_page,
                                    args=("ufc.ui.tab_cartelera", (modelo, estado)),
-                                   default_timeout=120).run()
+                                   default_timeout=120)
+    cartel.session_state["cartelera_abrir_pelea"] = 0
+    cartel.run()
     assert not cartel.exception, [e.value for e in cartel.exception]
     marca = "".join(h.body for h in cartel.get("html"))
-    assert 'src="app/static/fotos/prueba.png"' in marca, "el cartel no dibujo la foto"
+    assert 'src="app/static/fotos/prueba.png"' in marca, "el modal no dibujo la foto"
     # El segundo peleador del cartel se queda sin foto: tiene que caer al monograma, no
     # desaparecer. Sin esto, un fallo de la fuente se vuelve una cartelera sin caras.
     sin_foto = CARTELERA["events"][0]["competitions"][-1]["competitors"][1]
@@ -868,10 +944,20 @@ def check_app():
         [m.value for m in cart.markdown]
     assert [b.label for b in cart.button] == ["Volver a próximos eventos"]
     cart.button[0].click().run()
-    # La cuota es un badge por esquina, con el nombre del peleador adentro.
+    # El ledger congela la cartelera entera sin abrir ningun modal: si el registro se
+    # colara adentro del detalle, solo quedaria anotada la pelea que se miro.
+    assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
+    assert not [m.value for m in cart.markdown if "Betano —" in m.value], \
+        "el detalle de la pelea tiene que vivir en el modal, no en la pagina"
+
+    # Y con el modal abierto sale todo el detalle de esa pelea. La cuota es un badge por
+    # esquina, con el nombre del peleador adentro.
+    cart.session_state["cartelera_abrir_pelea"] = 1        # el debutante con cuota
+    cart.run()
     precios = [m.value for m in cart.markdown if "Betano —" in m.value]
     assert any("Nadie De La Nada 3.10" in c for c in precios), precios
-    assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
+    cart.session_state["cartelera_abrir_pelea"] = 2        # la unica con consenso
+    cart.run()
     consensos = [c.value for c in cart.caption if c.value.startswith("Consenso")]
     assert len(consensos) == 1 and "4 casas" in consensos[0], consensos
 
@@ -1648,7 +1734,8 @@ if __name__ == "__main__":
                   check_confianza, check_apuesta, check_integridad_metodologica,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
                   check_ledger, check_calibra, check_backtest, check_predictores,
-                  check_apuestas, check_cartelera, check_devig, check_staking,
+                  check_apuestas, check_cartelera, check_cartel, check_devig,
+                  check_staking,
                   check_pool, check_gate,
                   check_ia_dossier, check_ia_prompt_ciego, check_ia_dossier_sin_cuota,
                   check_ia_record, check_ia_historial, check_ia_validar,

@@ -9,13 +9,14 @@ from ufc.datos import betano, cartelera, oddsapi
 from ufc.ia import analista, consenso as ia_consenso
 from ufc.modelo import predict
 from ufc.registro import ledger, predictores
-from ufc.ui import comunes
+from ufc.ui import cartel, comunes
 
 
 _EVENTO_ACTIVO = "cartelera_evento_activo"
 _VER_ANTERIORES = "cartelera_ver_anteriores"
-_BUSCAR = "cartelera_buscar"
-_SOLO_CUOTA = "cartelera_solo_cuota"
+# El indice de la pelea a abrir. Lo escribe el clic en el cartel; queda como estado para
+# que los tests, que no pueden clickear un componente, abran el mismo modal.
+_ABRIR_PELEA = "cartelera_abrir_pelea"
 _MESES = ("ene", "feb", "mar", "abr", "may", "jun",
           "jul", "ago", "sept", "oct", "nov", "dic")
 
@@ -193,13 +194,87 @@ def _boton_ia(evento):
     st.rerun()
 
 
-def _visible(pelea, busqueda, solo_cuota, cuotas):
-    if solo_cuota and not cuotas:
-        return False
-    if not busqueda:
-        return True
-    texto = f"{pelea['a']} {pelea['b']} {pelea.get('peso', '')}".lower()
-    return busqueda.lower().strip() in texto
+def _pelea(pelea, i, evento, modelo, cuotas, r, info, hay_mercado,
+           fila, suyos, perfiles, retratos, ia):
+    """Todo lo que se sabe de una pelea. Es el contenido del modal que abre el cartel."""
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if i == 0:
+            st.badge("Main event", color="orange",
+                     icon=":material/workspace_premium:")
+        else:
+            st.badge(f"Pelea {len(evento['peleas']) - i}", color="gray")
+        if pelea["peso"]:
+            st.badge(pelea["peso"], color="gray", icon=":material/monitor_weight:")
+        if cuotas:
+            # Un badge por esquina, con el nombre adentro: el par "3.10 / 1.30" solo se
+            # entiende si ya sabes de memoria en que orden van.
+            st.badge(f"Betano — {pelea['a']} {cuotas[0]:.2f}", color="blue",
+                     icon=":material/sell:")
+            st.badge(f"{pelea['b']} {cuotas[1]:.2f}", color="orange")
+        elif hay_mercado:
+            st.badge("Sin cuota publicada", color="gray", icon=":material/sell:")
+
+    if info:
+        ma, mb = info["mejor"]
+        st.caption(f"Consenso de {info['casas']} casas — {pelea['a']} "
+                   f"{info['p_a']:.1%} · mejor cuota {ma:.2f} / {mb:.2f}")
+        # top-down: la mejor cuota le gana al consenso del mercado. No usa el modelo, asi
+        # que vale incluso para los debuts. El EV sale de `oddsapi.valor`, que para cada
+        # lado usa el consenso SIN la casa que ofrece ese precio y descuenta la dispersion
+        # entre casas.
+        valores = oddsapi.valor(info)
+        mejor_td = max(valores, key=lambda v: v["ev_low"]) if valores else None
+        if mejor_td and mejor_td["ev_low"] > 0:
+            quien = pelea["a"] if mejor_td["lado"] == "a" else pelea["b"]
+            st.info(f"**Mejor cuota que el consenso: {quien} paga "
+                    f"{mejor_td['cuota']:.2f} en {mejor_td['casa']}.** Contra el "
+                    f"consenso de las otras casas eso vale "
+                    f"{mejor_td['ev_low']:+.1%} ya descontada la dispersión "
+                    f"({mejor_td['ev']:+.1%} sin descontarla). Tomar el precio "
+                    "más alto de N casas infla la ventaja aparente aunque no "
+                    "haya ninguna: compará antes de apostar.",
+                    icon=":material/price_check:")
+    if m := predict.metodo(modelo, *cartelera.contexto(pelea["peso"], i == 0)):
+        _metodos(m)
+    if "error" in r:
+        # Un debut se queda sin modelo, pero las picks y el contexto siguen siendo lo
+        # unico que hay para leerlo: van igual.
+        st.info(f"{r['error']} — el modelo no puede predecir un debut.",
+                icon=":material/person_search:")
+    else:
+        comunes.resultado(pelea["a"], pelea["b"], r, cuotas,
+                          fotos=(retratos.get(pelea["a"]), retratos.get(pelea["b"])))
+
+    if ia is not None:
+        comunes.ia_veredicto(ia, pelea)
+        with st.expander("Análisis de la IA", icon=":material/smart_toy:"):
+            comunes.ia_tarjeta(ia, pelea)
+
+    if fila.predictores or suyos:
+        with st.container(horizontal=True, vertical_alignment="center"):
+            if fila.predictores:
+                st.badge(f"{fila.senal} · {fila.seleccion or 'sin mayoría'} · "
+                         f"{fila.predictores} "
+                         f"{'predictor' if fila.predictores == 1 else 'predictores'}",
+                         color="green" if fila.fuerte else "gray",
+                         icon=":material/verified:" if fila.fuerte
+                         else ":material/how_to_vote:")
+            for lado, check in suyos:
+                st.badge(f"{pelea[lado]} {comunes.intel_etiqueta(check['score'])}",
+                         color=comunes.intel_color(check["score"]),
+                         icon=":material/manage_search:")
+    _detalle(pelea, fila, suyos, perfiles, retratos)
+
+
+def _modal(pelea, *args, **kwargs):
+    """El mismo bloque, en una ventana. El titulo va en el encabezado del modal, asi que
+    el nombre de la pelea no se repite adentro."""
+
+    @st.dialog(f"{pelea['a']} vs {pelea['b']}", width="large")
+    def ventana():
+        _pelea(pelea, *args, **kwargs)
+
+    ventana()
 
 
 def render(modelo, estado, pagina_predictores=None):
@@ -264,24 +339,11 @@ def render(modelo, estado, pagina_predictores=None):
                 "antes. Va sin cuotas ni nivel de coincidencia.",
                 icon=":material/storefront:")
 
-    comunes.cartel(evento, retratos, preds)
-
-    # Filtro solo de pantalla: una cartelera numerada tiene catorce peleas y casi siempre
-    # se entra buscando una sola. No toca ningun calculo ni el registro del ledger.
-    with st.container(horizontal=True, vertical_alignment="bottom"):
-        busqueda = st.text_input("Buscar peleador o división", key=_BUSCAR,
-                                 placeholder="ej. Pereira, peso pesado…",
-                                 icon=":material/search:")
-        solo_cuota = st.toggle("Solo con cuota", key=_SOLO_CUOTA,
-                               help="Esconde las peleas para las que Betano todavía no "
-                                    "publicó precio.")
-        _boton_ia(evento)
-
-    mostradas = 0
-    for i, (pelea, cuotas, r) in enumerate(zip(evento["peleas"], cuotas_de, preds)):
-        # Congelar va antes de filtrar: el ledger tiene que registrar toda la cartelera,
-        # no solo lo que quedó a la vista.
-        info = oddsapi.buscar(consenso, pelea["a"], pelea["b"]) if consenso else None
+    # El registro va sobre la cartelera entera y no sobre la pelea que se abre: el ledger
+    # tiene que congelar todos los precios del evento, se haya mirado el detalle o no.
+    infos = [oddsapi.buscar(consenso, p["a"], p["b"]) if consenso else None
+             for p in evento["peleas"]]
+    for pelea, cuotas, r, info in zip(evento["peleas"], cuotas_de, preds, infos):
         if cuotas and "error" not in r:
             # la primera cuota vista queda congelada en el ledger: es la "apuesta al
             # abrir el mercado" que el Historial evalua despues. La mejor cuota del
@@ -290,96 +352,24 @@ def render(modelo, estado, pagina_predictores=None):
                              pelea["a"], pelea["b"], r, cuotas,
                              mejor=info["mejor"] if info else None,
                              inicio_utc=evento.get("inicio_utc"))
-        if not _visible(pelea, busqueda, solo_cuota, cuotas):
-            continue
-        mostradas += 1
-        with st.container(border=True):
-            with st.container(horizontal=True, horizontal_alignment="distribute",
-                              vertical_alignment="center"):
-                with st.container(horizontal=True, width="content",
-                                  vertical_alignment="center"):
-                    if i == 0:
-                        st.badge("Main event", color="orange",
-                                 icon=":material/workspace_premium:")
-                    else:
-                        st.badge(f"Pelea {len(evento['peleas']) - i}", color="gray")
-                    if pelea["peso"]:
-                        st.badge(pelea["peso"], color="gray",
-                                 icon=":material/monitor_weight:")
-                if cuotas:
-                    # Un badge por esquina, con el nombre adentro: el par "3.10 / 1.30"
-                    # solo se entiende si ya sabes de memoria en que orden van.
-                    with st.container(horizontal=True, width="content",
-                                      vertical_alignment="center"):
-                        st.badge(f"Betano — {pelea['a']} {cuotas[0]:.2f}",
-                                 color="blue", icon=":material/sell:")
-                        st.badge(f"{pelea['b']} {cuotas[1]:.2f}", color="orange")
-                elif any(cuotas_de):
-                    st.badge("Sin cuota publicada", color="gray", icon=":material/sell:")
-            st.subheader(f"{pelea['a']} vs {pelea['b']}")
 
-            if info:
-                ma, mb = info["mejor"]
-                st.caption(f"Consenso de {info['casas']} casas — {pelea['a']} "
-                           f"{info['p_a']:.1%} · mejor cuota {ma:.2f} / {mb:.2f}")
-                # top-down: la mejor cuota le gana al consenso del mercado. No usa
-                # el modelo, asi que vale incluso para los debuts. El EV sale de
-                # `oddsapi.valor`, que para cada lado usa el consenso SIN la casa que
-                # ofrece ese precio y descuenta la dispersion entre casas.
-                valores = oddsapi.valor(info)
-                mejor_td = max(valores, key=lambda v: v["ev_low"]) if valores else None
-                if mejor_td and mejor_td["ev_low"] > 0:
-                    quien = pelea["a"] if mejor_td["lado"] == "a" else pelea["b"]
-                    st.info(f"**Mejor cuota que el consenso: {quien} paga "
-                            f"{mejor_td['cuota']:.2f} en {mejor_td['casa']}.** Contra el "
-                            f"consenso de las otras casas eso vale "
-                            f"{mejor_td['ev_low']:+.1%} ya descontada la dispersión "
-                            f"({mejor_td['ev']:+.1%} sin descontarla). Tomar el precio "
-                            "más alto de N casas infla la ventaja aparente aunque no "
-                            "haya ninguna: compará antes de apostar.",
-                            icon=":material/price_check:")
-            if m := predict.metodo(modelo, *cartelera.contexto(pelea["peso"], i == 0)):
-                _metodos(m)
-            if "error" in r:
-                # Un debut se queda sin modelo, pero las picks y el contexto siguen
-                # siendo lo unico que hay para leerlo: van igual.
-                st.info(f"{r['error']} — el modelo no puede predecir un debut.",
-                        icon=":material/person_search:")
-            else:
-                comunes.resultado(pelea["a"], pelea["b"], r, cuotas,
-                                  fotos=(retratos.get(pelea["a"]),
-                                         retratos.get(pelea["b"])))
+    elegida = cartel.mostrar(evento, preds, key=f"cartel_{evento['evento']}")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.caption("Tocá una pelea del cartel para ver el modelo, el mercado, la IA y "
+                   "las picks de esa pelea.")
+        _boton_ia(evento)
 
-            # El veredicto de la IA va en su propio desplegable y no adentro del de
-            # picks: Streamlit no anida expanders, y ademas es lo que mas se abre.
-            if (ia := veredictos.get((pelea["a"], pelea["b"]))) is not None:
-                comunes.ia_veredicto(ia, pelea)
-                with st.expander("Análisis de la IA", icon=":material/smart_toy:"):
-                    comunes.ia_tarjeta(ia, pelea)
+    # El clic del cartel dura un solo rerun, igual que un boton. `pop` le da la misma
+    # semantica al gancho de session_state, que es por donde entra la suite.
+    if elegida is None:
+        elegida = st.session_state.pop(_ABRIR_PELEA, None)
+    if elegida is None or not 0 <= elegida < len(evento["peleas"]):
+        return
 
-            # Cuando no hay ni una pick ni un informe no se dibuja nada: una cartelera a
-            # dos meses no tiene ninguna de las dos cosas y serian catorce filas vacias.
-            fila = por_orden[i]
-            suyos = [(lado, checks[clave]) for lado in ("a", "b")
-                     if (clave := nombres.normalizar(pelea[lado])) in checks]
-            if not fila.predictores and not suyos and ia is None:
-                continue
-            with st.container(horizontal=True, vertical_alignment="center"):
-                if ia is not None:
-                    comunes.ia_badge(ia, pelea)
-                if fila.predictores:
-                    st.badge(f"{fila.senal} · {fila.seleccion or 'sin mayoría'} · "
-                             f"{fila.predictores} "
-                             f"{'predictor' if fila.predictores == 1 else 'predictores'}",
-                             color="green" if fila.fuerte else "gray",
-                             icon=":material/verified:" if fila.fuerte
-                             else ":material/how_to_vote:")
-                for lado, check in suyos:
-                    st.badge(f"{pelea[lado]} {comunes.intel_etiqueta(check['score'])}",
-                             color=comunes.intel_color(check["score"]),
-                             icon=":material/manage_search:")
-            _detalle(pelea, fila, suyos, perfiles, retratos)
-
-    if not mostradas:
-        st.info("Ninguna pelea de esta cartelera coincide con el filtro.",
-                icon=":material/filter_alt_off:")
+    pelea = evento["peleas"][elegida]
+    ia = veredictos.get((pelea["a"], pelea["b"]))
+    suyos = [(lado, checks[clave]) for lado in ("a", "b")
+             if (clave := nombres.normalizar(pelea[lado])) in checks]
+    _modal(pelea, elegida, evento, modelo, cuotas_de[elegida], preds[elegida],
+           infos[elegida], any(cuotas_de), por_orden[elegida], suyos, perfiles,
+           retratos, ia)

@@ -156,6 +156,29 @@ def _bajar(sesion, nombre):
     return fuente
 
 
+def bandera(url):
+    """-> el PNG local de la bandera que manda ESPN, o None si no hay URL o no se pudo.
+
+    Son ~40 paises para todo el calendario y el archivo es de 2 KB: se baja una vez y
+    despues el cartel lo abre de disco. Sin `.miss` como en las fotos — aca el fallo solo
+    puede ser de red, y ESPN nunca sirve una bandera generica.
+    """
+    if not url:
+        return None
+    f = rutas.BANDERAS / url.split("?")[0].rsplit("/", 1)[-1]
+    if f.exists():
+        return f
+    try:
+        r = _sesion().get(url, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  bandera {url}: {e}", flush=True)
+        return None
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(r.content)
+    return f
+
+
 def sincronizar(peleadores):
     """-> {peleador: ruta local o None}. Baja solo lo que falta."""
     pendientes = [n for n in peleadores

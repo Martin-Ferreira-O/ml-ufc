@@ -2,4 +2,5 @@ requests
 pandas
 scikit-learn
 streamlit
+pillow
 google-genai

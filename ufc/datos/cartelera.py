@@ -28,7 +28,12 @@ PELEAS_HIST = rutas.RAW / "ufc_fight_results.csv"
 
 
 def _parsear(payload):
-    """-> [{'evento', 'fecha', 'peleas': [{'peso', 'a', 'b'}]}], main event primero."""
+    """-> [{'evento', 'fecha', 'peleas': [{'peso', 'a', 'b'}]}], main event primero.
+
+    Cada pelea tambien se lleva la bandera y el pais de los dos lados, que ESPN manda en
+    la misma respuesta (`athlete.flag`) y el cartel de la app dibuja en cada esquina. Van
+    en "" cuando no vienen: el peleador recien firmado a veces llega sin ficha completa.
+    """
     eventos = []
     for e in payload.get("events", []):
         peleas = []
@@ -38,11 +43,17 @@ def _parsear(payload):
             # status la damos por pendiente antes que hacerla desaparecer.
             if c.get("status", {}).get("type", {}).get("state", "pre") != "pre":
                 continue
-            nombres = [x["athlete"]["displayName"] for x in c.get("competitors", [])]
+            atletas = [x.get("athlete", {}) for x in c.get("competitors", [])]
+            nombres = [x["displayName"] for x in atletas]
             if len(nombres) != 2 or any(n.lower() in SIN_RIVAL for n in nombres):
                 continue
+            banderas = [x.get("flag") or {} for x in atletas]
             peleas.append({"peso": c.get("type", {}).get("abbreviation", ""),
-                           "a": nombres[0], "b": nombres[1]})
+                           "a": nombres[0], "b": nombres[1],
+                           "bandera_a": banderas[0].get("href", ""),
+                           "bandera_b": banderas[1].get("href", ""),
+                           "pais_a": banderas[0].get("alt", ""),
+                           "pais_b": banderas[1].get("alt", "")})
         if peleas:
             eventos.append({"evento": e.get("name", "?"),
                             "fecha": str(e.get("date", ""))[:10],

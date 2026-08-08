@@ -284,91 +284,6 @@ def avatar(url, nombre, color, lado=52):
             f'border:1px solid {color}55">')
 
 
-def cartel(evento, retratos_de, preds):
-    """El cartel del evento, arriba de todo: el main event con los dos cuerpos enteros y
-    el resto de la cartelera en filas.
-
-    Es lo unico de la pagina que no es analisis — el analisis sigue abajo, sin cambios.
-    Un solo st.html con estilos inline, misma regla que `enfrentamiento`: la app no
-    inyecta CSS global.
-    """
-    peleas = evento["peleas"]
-    if not peleas:
-        return
-    esc = html.escape
-    r = preds[0] if preds else {}
-    titulo = "font:700 15px 'Barlow Condensed',sans-serif;letter-spacing:.06em"
-
-    barra = ""
-    # `r` viene vacio si no hay predicciones y trae "error" en un debut: en los dos casos
-    # el cartel va sin barra, no sin cartel.
-    if r and "error" not in r:
-        izq = min(max(round(r["p_a"] * 100), 3), 97)
-        barra = (
-            f'<div style="display:flex;gap:3px;height:8px;border-radius:999px;'
-            f'overflow:hidden;margin:10px auto 6px;max-width:420px">'
-            f'<div style="width:{izq}%;background:{COLOR_A};border-radius:999px"></div>'
-            f'<div style="width:{100 - izq}%;background:{COLOR_B};border-radius:999px">'
-            f'</div></div>'
-            f'<div style="display:flex;justify-content:space-between;max-width:420px;'
-            f'margin:0 auto;font:700 20px \'Barlow Condensed\',sans-serif">'
-            f'<span style="color:{COLOR_A}">{r["p_a"]:.0%}</span>'
-            f'<span style="font:400 11px Inter,sans-serif;color:#8A94A6">'
-            f'probabilidad del modelo</span>'
-            f'<span style="color:{COLOR_B}">{r["p_b"]:.0%}</span></div>')
-
-    # El main event: los dos cuerpos enteros enfrentados. `flex-wrap` para que en pantalla
-    # angosta se apilen en vez de encogerse hasta no verse.
-    main = peleas[0]
-    cabeza = (
-        f'<div style="display:flex;flex-wrap:wrap;align-items:flex-end;'
-        f'justify-content:center;gap:12px">'
-        f'<div style="flex:1 1 140px;display:flex;justify-content:flex-end">'
-        f'{retrato(retratos_de.get(main["a"]), main["a"], COLOR_A, 190)}</div>'
-        f'<span style="font:700 22px \'Barlow Condensed\',sans-serif;color:#8A94A6;'
-        f'letter-spacing:.2em;padding-bottom:60px">VS</span>'
-        f'<div style="flex:1 1 140px;display:flex;justify-content:flex-start">'
-        f'{retrato(retratos_de.get(main["b"]), main["b"], COLOR_B, 190)}</div></div>'
-        f'<div style="display:flex;justify-content:space-between;gap:12px;'
-        f'margin-top:6px;font:700 26px \'Barlow Condensed\',sans-serif;'
-        f'letter-spacing:.02em;text-transform:uppercase">'
-        f'<span style="color:{COLOR_A}">{esc(main["a"])}</span>'
-        f'<span style="color:{COLOR_B};text-align:right">{esc(main["b"])}</span></div>'
-        + barra +
-        (f'<div style="text-align:center;{titulo};color:#8A94A6;margin-top:8px">'
-         f'{esc(main["peso"])}</div>' if main["peso"] else ""))
-
-    filas = "".join(
-        f'<div style="display:flex;align-items:center;gap:10px;padding:9px 0;'
-        f'border-top:1px solid #222A38">'
-        f'{avatar(retratos_de.get(p["a"]), p["a"], COLOR_A, 38)}'
-        f'<span style="flex:1;min-width:0;{titulo};text-transform:uppercase;'
-        f'color:#E7EAF0">{esc(p["a"])}</span>'
-        f'<span style="width:110px;text-align:center;font:600 10px Inter,sans-serif;'
-        f'color:#8A94A6;letter-spacing:.14em">VS<br>'
-        f'<span style="font-size:9px;letter-spacing:.06em;opacity:.75">'
-        f'{esc(p["peso"] or "")}</span></span>'
-        f'<span style="flex:1;min-width:0;{titulo};text-transform:uppercase;'
-        f'color:#E7EAF0;text-align:right">{esc(p["b"])}</span>'
-        f'{avatar(retratos_de.get(p["b"]), p["b"], COLOR_B, 38)}'
-        f'</div>' for p in peleas[1:])
-
-    falta = cuenta_regresiva(evento["fecha"])
-    st.html(
-        f'<div style="border:1px solid #222A38;border-radius:14px;padding:18px 20px 14px;'
-        f'margin-bottom:14px;background:radial-gradient(120% 90% at 0% 0%,{COLOR_A}1A,'
-        f'transparent 55%),radial-gradient(120% 90% at 100% 0%,{COLOR_B}1A,transparent '
-        f'55%),#0B0E14">'
-        f'<div style="text-align:center;font:700 11px Inter,sans-serif;color:#8A94A6;'
-        f'letter-spacing:.22em;text-transform:uppercase">{esc(evento["evento"])}</div>'
-        f'<div style="text-align:center;font:400 12px Inter,sans-serif;color:#8A94A6;'
-        f'margin:2px 0 10px">{esc(str(evento["fecha"]))}'
-        f'{" · " + esc(falta) if falta else ""}</div>'
-        f'{cabeza}'
-        f'<div style="margin-top:14px">{filas}</div>'
-        f'</div>')
-
-
 def enfrentamiento(a, p_a, b, p_b, pie=None, fotos=None):
     """Una sola barra partida con las dos esquinas, en vez de dos barras apiladas.
 
@@ -512,7 +427,6 @@ def picks_pelea(fila):
         st.caption(f"**{pick['predictor']}** → {pick['eligio']} · {historial}")
 
 
-IA_COLOR = {"definido": "green", "parejo": "gray"}
 IA_ICONO = {"definido": ":material/check_circle:", "parejo": ":material/balance:"}
 IA_FUENTE = {"record": "Récord", "estadistica": "Estadística", "estilo": "Estilos",
              "historial": "Historial", "inteligencia": "Inteligencia",
@@ -528,15 +442,6 @@ def _ia_lado(fila, pelea):
     quien = pelea["a"] if fila["pick"] == "a" else pelea["b"]
     p = float(fila["p_a_ia"])
     return quien, (p if fila["pick"] == "a" else 1 - p)
-
-
-def ia_badge(fila, pelea):
-    """El badge de una linea: a quien se inclina la IA y con cuanta confianza."""
-    quien, p = _ia_lado(fila, pelea)
-    veredicto = fila.get("veredicto") or "definido"
-    texto = (f"IA: pareja, se inclina por {quien} {p:.0%}" if veredicto == "parejo"
-             else f"IA: {quien} {p:.0%} · confianza {fila['confianza']}")
-    st.badge(texto, color=IA_COLOR.get(veredicto, "gray"), icon=":material/smart_toy:")
 
 
 def ia_veredicto(fila, pelea):
