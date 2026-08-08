@@ -110,6 +110,11 @@ COLUMNAS_BT = {
     "ev_medio": st.column_config.NumberColumn(
         "EV prometido", format="percent",
         help="Lo que el modelo creía que ganaba por apuesta. Comparalo con el ROI."),
+    "n_para_concluir": st.column_config.NumberColumn(
+        "Necesita", format="%.0f",
+        help="Apuestas que pediría una prueba de potencia (80%, α=0.05) para distinguir "
+             "ese ROI de cero. Si es mayor que la columna Apuestas, la fila no concluye "
+             "nada por sí sola: no dice 'gana poco', dice 'no se sabe'."),
     "cuota_media": st.column_config.NumberColumn("Cuota media", format="%.2f"),
     "log_loss": st.column_config.NumberColumn("Log loss", format="%.4f"),
     "brier": st.column_config.NumberColumn("Brier", format="%.4f"),

@@ -1,0 +1,50 @@
+{
+  "version": "2026-08-07.1",
+  "_": "Regla PREREGISTRADA de apuesta. Se escribe ANTES de mirar los resultados y no se toca despues de una racha: ese es el unico punto de que exista. Cambiar cualquier campo de 'criterio' o 'regla' reinicia la cohorte de evaluacion y obliga a subir 'version'. ufc/modelo/gate.py lo lee y decide; nada del codigo puede autorizar una apuesta por fuera de esto.",
+
+  "regla": {
+    "descripcion": "Apostar al lado donde la MEJOR cuota disponible del mercado paga mas que la probabilidad de consenso desvigueada, con la ventaja medida y cobrada al mismo precio.",
+    "probabilidad": "consenso multi-casa desvigueado con el metodo campeon de ufc/modelo/devig.py, excluyendo del consenso a la casa que ofrece el mejor precio de ese lado",
+    "decide_sobre": "cota inferior p_conservadora(p, sigma), no la probabilidad puntual",
+    "precio": "mejor cuota decimal ejecutable al momento de registrar, no la de cierre",
+    "ev_minimo": 0.02,
+    "ventaja_minima_puntos": 0.02,
+    "mercados": ["moneyline"],
+    "prohibido": [
+      "combinadas: el vig se compone por leg y la correlacion no esta modelada",
+      "apostar por discrepancia grande entre modelo y mercado: esta medido que ahi el modelo rinde peor que una moneda",
+      "subir el stake para recuperar perdidas"
+    ]
+  },
+
+  "criterio": {
+    "_": "Que hace falta para que el gate se abra. El CLV y no el ROI porque el ROI necesita ~20.000 apuestas para distinguir una ventaja del 2% de cero (ver ufc.modelo.apuesta.n_para_detectar); el CLV necesita decenas.",
+    "metrica": "ev_al_cierre",
+    "n_minimo": 100,
+    "ic_inferior_mayor_que": 0.0,
+    "confianza": 0.95,
+    "clusterizado_por": "evento"
+  },
+
+  "stake": {
+    "_": "Kelly fraccional sobre la cota inferior. Nunca Kelly completo: la probabilidad es estimada y el optimo con parametro incierto esta estrictamente por debajo (Baker y McHale, 2013).",
+    "fraccion_kelly": 0.25,
+    "tope_por_apuesta": 0.01,
+    "tope_por_evento": 0.03,
+    "potencia_cota": 0.95
+  },
+
+  "pausa": {
+    "_": "Condiciones que cierran el gate aunque ya estuviera abierto. Se evaluan en cada corrida.",
+    "drawdown_maximo": 0.2,
+    "clv_negativo_ultimas": 50,
+    "reentrenamiento_del_modelo": true,
+    "cambio_de_fuente_de_cuotas": true,
+    "alerta_de_identidad_o_datos": true
+  },
+
+  "estado_inicial": {
+    "autorizado": false,
+    "motivo": "Ninguna version de este proyecto demostro ventaja economica. El backtest de 21 umbrales no deja ningun IC95% de ROI por encima de cero, y el forward test todavia no tiene muestra. El gate arranca cerrado por construccion."
+  }
+}

@@ -229,29 +229,72 @@ def check_integridad_metodologica():
 
 
 # Payload de The Odds API recortado: dos casas cotizando la misma pelea.
+# Cuatro casas y no dos: el consenso de un lado excluye a la casa que ofrece el mejor
+# precio de ESE lado, asi que hacen falta al menos MIN_CASAS + 1 para que quede consenso
+# despues de excluir. `casa_c` paga de mas a Turner y `casa_d` a Fernandes.
 ODDSAPI = [{
     "home_team": "Jalin Turner", "away_team": "Kaue Fernandes",
     "bookmakers": [
-        {"key": "pinnacle", "markets": [{"key": "h2h", "outcomes": [
+        {"key": "pinnacle", "title": "pinnacle", "markets": [{"key": "h2h", "outcomes": [
             {"name": "Jalin Turner", "price": 2.30},
             {"name": "Kaue Fernandes", "price": 1.62}]}]},
-        {"key": "otra", "markets": [{"key": "h2h", "outcomes": [
+        {"key": "otra", "title": "otra", "markets": [{"key": "h2h", "outcomes": [
             {"name": "Jalin Turner", "price": 2.10},
             {"name": "Kaue Fernandes", "price": 1.70}]}]},
+        {"key": "casa_c", "title": "casa_c", "markets": [{"key": "h2h", "outcomes": [
+            {"name": "Jalin Turner", "price": 2.40},
+            {"name": "Kaue Fernandes", "price": 1.60}]}]},
+        {"key": "casa_d", "title": "casa_d", "markets": [{"key": "h2h", "outcomes": [
+            {"name": "Jalin Turner", "price": 2.05},
+            {"name": "Kaue Fernandes", "price": 1.75}]}]},
     ]}]
 
 
 def check_oddsapi():
-    """Consenso multi-casa: mediana desvigueada, mejor cuota por lado, orientacion."""
+    """Consenso multi-casa: exclusion de la casa del mejor precio, stale y orientacion."""
     t = oddsapi._parsear(ODDSAPI)
     fila = t[("jalin turner", "kaue fernandes")]
-    assert fila["casas"] == 2 and fila["mejor"] == (2.30, 1.70), fila
-    assert 0 < fila["p_x"] < 0.5, fila         # Turner es el underdog en ambas casas
+    assert fila["casas"] == 4 and fila["mejor"] == (2.40, 1.75), fila
+    assert 0 < fila["p_x"] < 0.5, fila         # Turner es el underdog en todas las casas
+
+    # el consenso de cada lado excluye a la casa que ofrece SU mejor precio, asi que los
+    # dos no tienen por que sumar 1: son dos estimaciones distintas, cada una limpia
+    # respecto del precio contra el que se la compara
+    assert fila["casas_consenso"] == (3, 3), fila
+    assert abs(fila["p_x"] + (1 - fila["p_y"]) - 1) > 1e-9, \
+        "si suman 1 exacto es que no se excluyo a nadie"
+
+    # La exclusion SUBE el EV medido, no lo baja: la casa generosa con X es la que menos
+    # probabilidad le da, y sacarla del consenso levanta la mediana. Se hace por
+    # independencia (la referencia no puede contener el precio que juzga), no por
+    # prudencia — de la inflacion por tomar el maximo protege `p_conservadora`.
+    sucio, _, _ = oddsapi._consenso_sin(oddsapi._precios(ODDSAPI[0], "jalin turner",
+                                                         "kaue fernandes"), None)
+    assert fila["p_x"] > sucio, (fila["p_x"], sucio)
+    assert fila["p_x"] * 2.40 - 1 > sucio * 2.40 - 1
 
     r = oddsapi.buscar(t, "Kauê Fernandes", "Jalin Turner")   # acento y orden dados vuelta
-    assert r and abs(r["p_a"] - (1 - fila["p_x"])) < 1e-12, r
-    assert r["mejor"] == (1.70, 2.30), r
+    assert r and abs(r["p_a"] - (1 - fila["p_y"])) < 1e-12, r
+    assert r["mejor"] == (1.75, 2.40) and r["casa"] == ("casa_d", "casa_c"), r
     assert oddsapi.buscar(t, A, B) is None
+
+    # una casa que no actualiza hace dias no esta cotizando: no entra al consenso
+    import copy
+    import datetime
+    viejo = copy.deepcopy(ODDSAPI)
+    viejo[0]["bookmakers"][0]["last_update"] = "2020-01-01T00:00:00Z"
+    ahora = datetime.datetime(2026, 8, 7, tzinfo=datetime.timezone.utc)
+    assert len(oddsapi._precios(viejo[0], "jalin turner", "kaue fernandes", ahora)) == 3
+
+    # abajo de MIN_CASAS no hay consenso: la mediana de dos es el promedio de dos, y
+    # excluir una deja una sola
+    flaco = {"home_team": "X Uno", "away_team": "Y Dos",
+             "bookmakers": ODDSAPI[0]["bookmakers"][:2]}
+    assert oddsapi._parsear([flaco]) == {}
+
+    v = oddsapi.valor(r)
+    assert {x["lado"] for x in v} == {"a", "b"} and len(v) == 2, v
+    assert all(x["ev_low"] <= x["ev"] for x in v), "la cota inferior no puede dar mas EV"
 
     import os
     key = os.environ.pop("ODDS_API_KEY", None)
@@ -738,6 +781,10 @@ def check_app():
         ("ufc.ui.tab_apuestas", (modelo, estado), "Apuestas"),
         ("ufc.ui.tab_matchup", (modelo, estado, nombres), "Matchup"),
         ("ufc.ui.tab_historial", (), "Seguimiento del modelo"),
+        # Backtest renderiza igual sin `data/backtest.json`: en ese caso muestra el
+        # instructivo para generarlo. Faltaba de esta lista y es la pagina con mas
+        # pestanias, o sea la que mas facil se rompe en silencio al agregar una.
+        ("ufc.ui.tab_backtest", (), "Backtest"),
     ]
     for modulo, args, titulo in paginas:
         pagina = AppTest.from_function(_render_page, args=(modulo, args),
@@ -826,7 +873,7 @@ def check_app():
     assert any("Nadie De La Nada 3.10" in c for c in precios), precios
     assert ledger.LEDGER.exists(), "la cartelera con cuota no registro nada"
     consensos = [c.value for c in cart.caption if c.value.startswith("Consenso")]
-    assert len(consensos) == 1 and "2 casas" in consensos[0], consensos
+    assert len(consensos) == 1 and "4 casas" in consensos[0], consensos
 
 
 def check_calibra():
@@ -927,11 +974,169 @@ def check_backtest():
         == "p_identidad", "sin ganador tiene que caer en identidad"
 
 
+def check_devig():
+    """Los cuatro metodos: suman 1, son antisimetricos y coinciden cuando no hay vig."""
+    import numpy as np
+
+    from ufc.modelo import devig
+
+    pa = np.array([0.55, 0.80, 0.95, 0.50, 0.30])
+    pb = np.array([0.50, 0.28, 0.10, 0.55, 0.75])
+    for nombre, f in devig.METODOS.items():
+        p, espejo = f(pa, pb), f(pb, pa)
+        assert np.abs(p + espejo - 1).max() < 1e-9, (nombre, p, espejo)
+        assert ((p > 0) & (p < 1)).all(), (nombre, p)
+
+    # sin vig no hay nada que repartir: los cuatro tienen que devolver la implicita cruda
+    justas_a, justas_b = np.array([0.4]), np.array([0.6])
+    for nombre, f in devig.METODOS.items():
+        assert abs(f(justas_a, justas_b)[0] - 0.4) < 1e-9, nombre
+
+    # cuotas iguales -> 50% con cualquier metodo
+    for nombre in devig.METODOS:
+        assert abs(devig.de_cuotas(1.90, 1.90, nombre) - 0.5) < 1e-9, nombre
+
+    # el orden favorito-longshot: el proporcional es el que menos le da al favorito y
+    # power el que mas. Es la razon entera de que power sea el campeon.
+    fav = {n: devig.de_cuotas(1.30, 3.65, n) for n in devig.METODOS}
+    assert fav["proporcional"] < fav["shin"] < fav["power"], fav
+    assert fav["proporcional"] < fav["odds_ratio"] < fav["power"], fav
+
+    assert isinstance(devig.desvig(0.55, 0.50), float), "escalar entra, escalar sale"
+    assert abs(devig.vig(1.90, 1.90) - (2 / 1.90 - 1)) < 1e-12
+    assert devig.CAMPEON in devig.METODOS
+
+
+def check_staking():
+    """Kelly, crecimiento, ruina, potencia y combinadas contra valores calculados a mano."""
+    import numpy as np
+
+    from ufc.modelo import apuesta
+
+    # f* = (p*q - 1)/(q - 1)
+    assert abs(float(apuesta.kelly(0.60, 2.00)) - 0.20) < 1e-9
+    assert abs(float(apuesta.kelly(0.80, 1.30)) - 0.04 / 0.30) < 1e-9
+    assert float(apuesta.kelly(0.50, 2.00)) == 0.0, "sin ventaja no se apuesta"
+    assert float(apuesta.kelly(0.30, 2.00)) == 0.0, "ventaja negativa tampoco"
+
+    # el maximo del crecimiento tiene que caer EXACTAMENTE en f*: es lo que hace que
+    # `kelly` y `crecimiento` sean dos caras de lo mismo y no dos formulas sueltas
+    fs = np.linspace(0, 0.5, 5001)
+    g = apuesta.crecimiento(0.60, 2.00, fs)
+    assert abs(fs[int(np.argmax(g))] - 0.20) < 1e-3, fs[int(np.argmax(g))]
+    assert apuesta.crecimiento(0.60, 2.00, 1.0) == -np.inf, "apostar todo puede quebrar"
+
+    # ruina: Kelly completo tiene 50% de tocar la mitad de la banca alguna vez, APOSTANDO
+    # con ventaja real. Y mas fraccion siempre es mas riesgo.
+    assert abs(float(apuesta.riesgo_de_ruina(1.0, 0.5)) - 0.5) < 1e-9
+    ruinas = [float(apuesta.riesgo_de_ruina(c, 0.5)) for c in (0.1, 0.25, 0.5, 1.0)]
+    assert ruinas == sorted(ruinas), ruinas
+
+    # la cuenta que define el proyecto: el ROI necesita decenas de miles de apuestas y el
+    # CLV decenas. Si esto se rompe, el criterio del gate deja de tener sentido.
+    sigma = float(apuesta.sigma_apuesta(0.5, 2.0))
+    assert abs(sigma - 1.0) < 1e-9, sigma
+    assert float(apuesta.n_para_detectar(0.02, sigma)) > 15000
+    assert float(apuesta.n_para_detectar(0.02, 0.04)) < 100
+
+    # el vig se compone en cada leg: tres a -5% no dan -5%
+    legs = [(0.5, 1.90)] * 3
+    assert abs(apuesta.ev_combinada(legs) - (0.95 ** 3 - 1)) < 1e-12
+    assert apuesta.ev_combinada(legs) < apuesta.ev_combinada(legs[:1])
+    dep = apuesta.dependencia_necesaria(legs[:2])
+    assert dep["lift"] > 1 and 0 < dep["phi"] < 1, dep
+
+    # la cota inferior nunca puede dar mas ventaja que la puntual
+    assert float(apuesta.p_conservadora(0.60, 0.03)) < 0.60
+    assert float(apuesta.p_conservadora(0.60, 0.0)) == 0.60
+    s = apuesta.stake(0.60, 2.00, 100_000, fraccion=0.25, tope=0.01)
+    assert s["limita"] == "tope por apuesta" and s["monto"] == 1000.0, s
+    assert apuesta.stake(0.45, 2.00, 100_000)["monto"] == 0.0
+    # con tope alto manda Kelly: 0.25 * 0.20 = 5% de la banca
+    holgado = apuesta.stake(0.60, 2.00, 100_000, fraccion=0.25, tope=1.0)
+    assert abs(holgado["fraccion"] - 0.05) < 1e-9, holgado
+
+    e = apuesta.exposicion([1000, 1000, 2000], 100_000, tope_evento=0.03)
+    assert e["excede"] and e["disponible"] == 0.0, e
+    assert not apuesta.exposicion([1000], 100_000, tope_evento=0.03)["excede"]
+
+
+def check_pool():
+    """El pool conserva la antisimetria exacta y su piso es el mercado, no la moneda."""
+    import numpy as np
+
+    from ufc.modelo import pool
+
+    rng = np.random.default_rng(0)
+    p_mkt = rng.uniform(0.2, 0.8, 800)
+    p_mod = np.clip(p_mkt + rng.normal(0, 0.05, 800), 0.02, 0.98)
+    y = (rng.uniform(size=800) < p_mkt).astype(float)
+
+    g = pool.ajustar(p_mod, p_mkt, y)
+    # p(A,B) + p(B,A) = 1 EXACTO: sin esto, invertir el orden cambiaria la apuesta
+    directo, espejo = g(p_mod, p_mkt), g(1 - p_mod, 1 - p_mkt)
+    assert np.abs(directo + espejo - 1).max() < 1e-9, np.abs(directo + espejo - 1).max()
+
+    # sin muestra no se inventa un peso: cae en servir el mercado tal cual
+    vacio = pool.ajustar(p_mod[:5], p_mkt[:5], y[:5])
+    assert vacio.w_modelo == 0.0 and vacio.w_mercado == 1.0, vacio
+    assert abs(pool.IDENTIDAD_MERCADO(0.3, 0.62) - 0.62) < 1e-6, "el piso es el mercado"
+
+    # prequencial: ningun fold puede usar su propio resultado para elegir sus pesos
+    folds = np.repeat(np.arange(4), 200)
+    p, pesos = pool.prequencial(p_mod, p_mkt, y, folds)
+    assert np.isfinite(p).all() and len(pesos) == 4, pesos
+    assert pesos[0]["n_train"] == 0 and pesos[0]["w_modelo"] == 0.0, pesos[0]
+    assert all(x["n_train"] > 0 for x in pesos[1:]), pesos
+    assert abs(p[:200] - p_mkt[:200]).max() < 1e-6, "el primer fold sale como mercado"
+
+
+def check_gate():
+    """El gate arranca cerrado y solo abre con IC limpio Y muestra preregistrada."""
+    import numpy as np
+
+    from ufc.modelo import gate
+
+    config = gate.leer()
+    assert config is not None, "config/gate.json tiene que existir"
+    assert config["estado_inicial"]["autorizado"] is False
+    n_minimo = config["criterio"]["n_minimo"]
+
+    assert gate.evaluar([])["autorizado"] is False, "sin datos no se autoriza nada"
+
+    # CLV buenisimo pero muestra corta: NO abre. El n_minimo preregistrado manda por
+    # encima de cualquier prueba de potencia calculada con los propios datos.
+    corto = gate.evaluar([0.05] * 10, eventos=[f"e{i}" for i in range(10)], config=config)
+    assert corto["autorizado"] is False and corto["faltan"] == n_minimo - 10, corto
+
+    # muestra suficiente y CLV claramente positivo: abre
+    rng = np.random.default_rng(0)
+    n = n_minimo + 50
+    bueno = rng.normal(0.05, 0.02, n)
+    e = gate.evaluar(bueno, eventos=[f"e{i // 3}" for i in range(n)], config=config)
+    assert e["autorizado"] and e["lo"] > 0, e
+
+    # mismo n, CLV centrado en cero: no abre
+    nulo = gate.evaluar(rng.normal(0.0, 0.05, n),
+                        eventos=[f"e{i // 3}" for i in range(n)], config=config)
+    assert nulo["autorizado"] is False and nulo["lo"] <= 0, nulo
+
+    # y CLV negativo tampoco, por mucha muestra que haya
+    malo = gate.evaluar(rng.normal(-0.05, 0.02, n),
+                        eventos=[f"e{i // 3}" for i in range(n)], config=config)
+    assert malo["autorizado"] is False, malo
+
+    par = gate.stake_params(config)
+    assert 0 < par["fraccion"] <= 0.5, "nunca Kelly completo en la regla"
+    assert 0 < par["tope"] <= par["tope_evento"], par
+
+
 if __name__ == "__main__":
     for check in (check_fetch, check_betano, check_simetria, check_circunstancia,
                   check_confianza, check_apuesta, check_integridad_metodologica,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
                   check_ledger, check_calibra, check_backtest, check_predictores,
-                  check_apuestas, check_cartelera, check_app):
+                  check_apuestas, check_cartelera, check_devig, check_staking,
+                  check_pool, check_gate, check_app):
         check()
         print(f"ok  {check.__name__}")

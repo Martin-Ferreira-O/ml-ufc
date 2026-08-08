@@ -21,9 +21,10 @@ from ufc.modelo import predict
 LEDGER = rutas.DATOS / "ledger.csv"
 # `p_con_odds` va al final a proposito: la migracion de abajo rellena las columnas que
 # falten agregando vacias al final, asi que una columna nueva en el medio corre todo.
+# `inicio_utc` sigue la misma regla y por eso va ultima.
 COLS = ["visto", "evento", "fecha_evento", "a", "b", "p_a", "p_mercado",
         "cuota_a", "cuota_b", "confianza", "apuesta", "ev", "mejor_a", "mejor_b",
-        "p_con_odds"]
+        "p_con_odds", "inicio_utc"]
 # Piso para seguir un lado, en PUNTOS DE PROBABILIDAD contra el precio que se toma.
 # Antes el piso era sobre el EV, y eso pide una ventaja de umbral*p_mercado: 0.9 puntos
 # en una cuota de 5.80 contra 3.9 en una de 1.30. El mismo piso era cuatro veces mas
@@ -32,7 +33,8 @@ COLS = ["visto", "evento", "fecha_evento", "a", "b", "p_a", "p_mercado",
 UMBRAL_VENTAJA = 0.05
 
 
-def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None, mejor=None):
+def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None, mejor=None,
+              inicio_utc=None):
     """Congela la prediccion la primera vez que la pelea aparece con cuota."""
     LEDGER.parent.mkdir(parents=True, exist_ok=True)
     filas = []
@@ -59,7 +61,8 @@ def registrar(evento, fecha_evento, a, b, r, cuotas, hoy=None, mejor=None):
                     round(r["p_a_mercado"], 4), cuotas[0], cuotas[1],
                     r["confianza"], lado or "", round(ev, 4),
                     *(mejor or ("", "")),
-                    round(r["p_a_con_odds"], 4) if "p_a_con_odds" in r else ""])
+                    round(r["p_a_con_odds"], 4) if "p_a_con_odds" in r else "",
+                    inicio_utc or ""])
 
 
 def _resultados():
@@ -84,20 +87,44 @@ def _resultados():
         "ganador": [nombres.normalizar(g) for g in ganador]})
 
 
-def _cierres(fecha_por_par):
-    """{par: (cuota_x, cuota_y)} con el ultimo tick de betano_hist antes del evento."""
+def _cierres(limite_por_par):
+    """{par: (cuota_x, cuota_y)} con el ultimo tick ANTERIOR al inicio de la pelea.
+
+    `limite_por_par` trae el corte ya resuelto por pelea. Cuando el ledger guardo el
+    `inicio_utc` del evento, el corte es esa hora exacta y el cierre es cierre de verdad.
+    Sin esa columna (filas viejas) se cae a `fecha_evento + 1 dia`, que es lo que hacia
+    antes y puede colar cuotas EN VIVO o posteriores al combate: una cuota live de un
+    peleador que ya esta ganando no es la linea de cierre, y usarla infla o destruye el
+    CLV segun como venia la pelea. Es la unica metrica que decide si este proyecto puede
+    apostar, asi que el corte tiene que ser estricto.
+    """
     if not betano.HIST.exists():
         return {}
     h = pd.read_csv(betano.HIST, parse_dates=["ts"])
     tabla = {}
     for (a, b), g in h.groupby(["a", "b"]):
-        limite = fecha_por_par.get((a, b))
+        limite = limite_por_par.get((a, b))
         if limite is not None:
-            g = g[g["ts"] < limite + pd.Timedelta(days=1)]
+            g = g[g["ts"] < limite]
         if len(g):
             fila = g.sort_values("ts").iloc[-1]
             tabla[(a, b)] = (fila["cuota_a"], fila["cuota_b"])
     return tabla
+
+
+def _limite(fila):
+    """El instante a partir del cual una cuota ya no es "antes de la pelea".
+
+    Con `inicio_utc` es la hora real de inicio; sin el, el fallback historico de
+    `fecha_evento + 1 dia`. Se devuelve naive (sin tz) porque los `ts` de `betano_hist`
+    son hora local sin tz y comparar aware contra naive levanta.
+    """
+    crudo = fila.get("inicio_utc")
+    if crudo not in (None, "") and pd.notna(crudo):
+        ts = pd.to_datetime(crudo, errors="coerce", utc=True)
+        if pd.notna(ts):
+            return ts.tz_localize(None)
+    return fila["fecha_evento"] + pd.Timedelta(days=1)
 
 
 def evaluar(umbral=UMBRAL_VENTAJA):
@@ -118,7 +145,7 @@ def evaluar(umbral=UMBRAL_VENTAJA):
     res = _resultados()
     por_par = {p: g for p, g in res.groupby("par")}
     ganador, cierre_a, cierre_b = [], [], []
-    cierres = _cierres(dict(zip(df["par"], df["fecha_evento"])))
+    cierres = _cierres({p: _limite(f) for p, (_, f) in zip(df["par"], df.iterrows())})
     for _, fila in df.iterrows():
         g = por_par.get(fila["par"])
         if g is not None:
@@ -171,6 +198,18 @@ def evaluar(umbral=UMBRAL_VENTAJA):
     # cuanto suma el line-shopping sobre Betano en ese mismo lado
     df["extra"] = df["cuota_lado"] / np.where(es_a, df["cuota_a"], df["cuota_b"]) - 1
     df["clv"] = df["cuota_lado"] / np.where(es_a, df["cierre_a"], df["cierre_b"]) - 1
+
+    # CLV en unidades economicas. `clv` compara dos cuotas y contesta "¿consegui mejor
+    # precio?"; esto contesta "¿cuanto vale esa apuesta segun lo que el mercado terminó
+    # creyendo?", que es lo unico comparable contra cero y lo que evalua el gate:
+    #     ev_al_cierre = p_justa_del_cierre(lado) * cuota_tomada - 1
+    # Positivo = el mercado se movio hacia el lado apostado despues de tomarlo. Es el
+    # mismo numero que un ROI esperado, pero medido contra el precio de cierre en vez de
+    # contra el resultado, y por eso converge en decenas de apuestas y no en miles.
+    p_cierre_a = predict._desvig(1 / df["cierre_a"], 1 / df["cierre_b"])
+    p_cierre = np.where(es_a, p_cierre_a, 1 - p_cierre_a)
+    df["p_cierre"] = np.where(sin_lado, np.nan, p_cierre)
+    df["ev_al_cierre"] = np.where(sin_lado, np.nan, p_cierre * df["cuota_lado"] - 1)
     con_res = df["gano"].notna()
     df["retorno"] = np.where(~con_res | sin_lado, np.nan,
                              np.where(df["gano"] == lado, df["cuota_lado"] - 1, -1.0))
@@ -190,4 +229,39 @@ def evaluar(umbral=UMBRAL_VENTAJA):
         "seguidos": int((~sin_lado).sum()),
         "extra_medio": df["extra"].mean(),
     }
+    resumen.update(_clv(df))
     return df, resumen
+
+
+def _clv(df):
+    """El bloque de CLV con incertidumbre: media, IC95% clusterizado y cuanto falta.
+
+    Sin el IC, un CLV medio es un numero que siempre se puede leer como buena noticia.
+    Con n=16 apuestas, cualquier media entre -10% y +10% es ruido, y el objeto de esta
+    funcion es que eso se vea en la pantalla en vez de tener que saberlo.
+
+    Se clusteriza por evento porque las peleas de una misma cartelera comparten el
+    movimiento del mercado de esa cartelera: contarlas como observaciones independientes
+    angosta el intervalo y adelanta la conclusion.
+    """
+    from ufc.modelo import apuesta, train
+
+    d = df[(df["lado"] != "") & df["ev_al_cierre"].notna()]
+    n = len(d)
+    if not n:
+        return {"clv_n": 0, "clv_ev": np.nan, "clv_lo": np.nan, "clv_hi": np.nan,
+                "clv_batio": np.nan, "clv_n_para_concluir": np.nan}
+    v = d["ev_al_cierre"].to_numpy(float)
+    media, lo, hi = train.bootstrap(v, clusters=d["evento"].to_numpy())
+    sigma = float(np.std(v, ddof=1)) if n > 1 else np.nan
+    return {
+        "clv_n": int(n), "clv_ev": float(media), "clv_lo": float(lo), "clv_hi": float(hi),
+        "clv_sigma": sigma,
+        "clv_batio": float((v > 0).mean()),
+        # Con la dispersion observada, cuantas apuestas pediria una prueba de potencia
+        # para separar ESTE CLV de cero. Es orientativo y NO reemplaza el `n_minimo`
+        # preregistrado del gate: con 4 apuestas la dispersion misma es una estimacion
+        # ruidosa, asi que este numero puede salir absurdamente chico.
+        "clv_n_para_concluir": (float(apuesta.n_para_detectar(media, sigma))
+                                if n > 1 and np.isfinite(sigma) and media else np.inf),
+    }

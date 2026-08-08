@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from ufc import nombres, rutas
+from ufc.modelo import devig
 
 MODEL = rutas.MODELO
 STATE = rutas.DATOS / "fighter_state.csv"
@@ -42,9 +43,20 @@ CONFIANZA = ((0.05, "alta"), (0.15, "media"), (1.01, "baja"))
 # el IC95% se despega de cero. Es break-even con esperanza, no una ventaja probada —
 # y encima es el mejor de 4 tramos elegido a posteriori, o sea que la evidencia real
 # es mas debil todavia. El Historial de la app (CLV) es el forward test que decide.
-# El mejor tramo fue elegido a posteriori y su IC95% cruza cero. Se conserva el EV como
-# diagnostico, pero ninguna version actual esta autorizada a recomendar una apuesta.
-APUESTAS_AUTOMATICAS = False
+
+
+def apuestas_automaticas():
+    """Si el proyecto esta autorizado a recomendar una apuesta. Hoy: no.
+
+    Era la constante `APUESTAS_AUTOMATICAS = False`. Ahora se deriva de la regla
+    preregistrada de `config/gate.json` evaluada contra el CLV real del ledger, asi que
+    da la misma respuesta pero con un motivo, un n y cuanto falta. Es funcion y no
+    constante porque depende de datos que cambian, y porque evaluarla al importar cerraria
+    el ciclo predict -> gate -> ledger -> predict.
+    """
+    from ufc.modelo import gate
+
+    return gate.autorizado()
 
 
 # Circunstancias de la pelea que el modelo usa pero el estado del peleador no tiene.
@@ -88,22 +100,16 @@ def _factores(sub, X, n=4):
             for i in np.argsort(-np.abs(aporte))[:n]]
 
 
-def _desvig(pa, pb, iters=60):
-    """Probabilidades implicitas con vig -> justas, metodo power (k: pa^k + pb^k = 1).
+def _desvig(pa, pb):
+    """Implicitas con vig -> justas, con el metodo campeon de `devig`.
 
-    El proporcional reparte el vig parejo y sobreestima al underdog — el sesgo
-    favorito-longshot que el README documenta. Medido sobre 6916 peleas con cuota:
-    power gana -0.0009 de log loss (IC95% [-0.0015, -0.0003]), y -0.0048 en los
-    favoritos de >75%, que es donde se juega el EV.
+    Sigue viviendo aca como alias porque medio repo lo llama por este nombre, pero la
+    implementacion y la eleccion del metodo estan en `ufc/modelo/devig.py`, que compara
+    los cuatro contra el resultado real. Medido sobre 6901 peleas (2026-08-07): power
+    gana, y los tres challengers se descartan con el IC95% entero arriba de cero —
+    proporcional +0.0009, shin +0.0003, odds_ratio +0.0002 de log loss.
     """
-    pa, pb = np.asarray(pa, float), np.asarray(pb, float)
-    lo, hi = np.ones_like(pa), np.full_like(pa, 20.0)
-    for _ in range(iters):
-        k = (lo + hi) / 2
-        arriba = pa ** k + pb ** k > 1
-        lo, hi = np.where(arriba, k, lo), np.where(arriba, hi, k)
-    k = (lo + hi) / 2
-    return pa ** k / (pa ** k + pb ** k)
+    return devig.desvig(pa, pb)
 
 
 def _mercado(cuotas):

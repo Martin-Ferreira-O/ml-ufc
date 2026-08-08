@@ -240,7 +240,8 @@ def render(modelo, estado, pagina_predictores=None):
             # mercado va con ella: sin eso el Seguimiento solo puede medir Betano.
             ledger.registrar(evento["evento"], evento["fecha"],
                              pelea["a"], pelea["b"], r, cuotas,
-                             mejor=info["mejor"] if info else None)
+                             mejor=info["mejor"] if info else None,
+                             inicio_utc=evento.get("inicio_utc"))
         if not _visible(pelea, busqueda, solo_cuota, cuotas):
             continue
         mostradas += 1
@@ -274,15 +275,20 @@ def render(modelo, estado, pagina_predictores=None):
                 st.caption(f"Consenso de {info['casas']} casas — {pelea['a']} "
                            f"{info['p_a']:.1%} · mejor cuota {ma:.2f} / {mb:.2f}")
                 # top-down: la mejor cuota le gana al consenso del mercado. No usa
-                # el modelo, asi que vale incluso para los debuts.
-                ev_td = (info["p_a"] * ma - 1, (1 - info["p_a"]) * mb - 1)
-                if max(ev_td) > 0:
-                    lado = 0 if ev_td[0] >= ev_td[1] else 1
-                    quien = pelea["a"] if lado == 0 else pelea["b"]
-                    st.info(f"**Mejor cuota que el promedio: {quien} paga "
-                            f"{info['mejor'][lado]:.2f}.** Esa casa ofrece "
-                            f"{ev_td[lado]:+.1%} más valor que el precio medio del "
-                            "mercado. Compará precios antes de apostar.",
+                # el modelo, asi que vale incluso para los debuts. El EV sale de
+                # `oddsapi.valor`, que para cada lado usa el consenso SIN la casa que
+                # ofrece ese precio y descuenta la dispersion entre casas.
+                valores = oddsapi.valor(info)
+                mejor_td = max(valores, key=lambda v: v["ev_low"]) if valores else None
+                if mejor_td and mejor_td["ev_low"] > 0:
+                    quien = pelea["a"] if mejor_td["lado"] == "a" else pelea["b"]
+                    st.info(f"**Mejor cuota que el consenso: {quien} paga "
+                            f"{mejor_td['cuota']:.2f} en {mejor_td['casa']}.** Contra el "
+                            f"consenso de las otras casas eso vale "
+                            f"{mejor_td['ev_low']:+.1%} ya descontada la dispersión "
+                            f"({mejor_td['ev']:+.1%} sin descontarla). Tomar el precio "
+                            "más alto de N casas infla la ventaja aparente aunque no "
+                            "haya ninguna: compará antes de apostar.",
                             icon=":material/price_check:")
             if m := predict.metodo(modelo, *cartelera.contexto(pelea["peso"], i == 0)):
                 _metodos(m)

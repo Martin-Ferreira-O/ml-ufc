@@ -15,6 +15,9 @@ data/*
 !data/cartelera_hist.csv
 # ticks de cuota apertura->cierre: la unica fuente de CLV
 !data/betano_hist.csv
+# lo mismo pero por casa, via The Odds API: habilita el CLV contra el mejor precio del
+# mercado y no solo contra Betano. Tampoco se puede recuperar hacia atras.
+!data/odds_hist.csv
 # picks publicos de predictores, y su audit log append-only
 !data/picks.csv
 !data/picks_audit.csv
