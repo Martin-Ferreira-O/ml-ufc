@@ -304,13 +304,28 @@ lo dice en vez de callarse.
 # 1. Pedile un token a @BotFather y agregá las dos variables a /etc/ml-ufc/intel.env
 #    TELEGRAM_BOT_TOKEN=...   (también se acepta TOKEN_BOT)
 #    TELEGRAM_CHAT_IDS=...
-# 2. Instalá las unidades (ufc-tipster no lleva timer: es un demonio en long polling)
-sudo cp deploy/ufc-tipster.service deploy/ufc-deploy.service /etc/systemd/system/
-sudo cp deploy/ufc-deploy.timer /etc/systemd/system/
+# 2. La VPS tiene que ser un clon de git para que el despliegue automático funcione.
+#    Si el código llegó por scp, se convierte en el lugar sin perder los artefactos
+#    de inteligencia, que no están versionados:
+sudo apt-get install -y git
+cd /opt/ml-ufc
+git init -b ufc-fight-predictor
+git remote add origin https://github.com/Martin-Ferreira-O/ml-ufc.git
+git fetch --depth 50 origin ufc-fight-predictor
+git reset --hard FETCH_HEAD      # trae lo versionado; deja intacto intel.db y el resto
+git branch -u origin/ufc-fight-predictor
+# 3. Instalá las unidades. Son plantillas: hay que sustituir el usuario.
+for u in deploy/ufc-tipster.service deploy/ufc-deploy.service deploy/ufc-deploy.timer; do
+  sed -e "s/REEMPLAZAR_USUARIO/$(id -un)/" -e "s/REEMPLAZAR_GRUPO/$(id -gn)/" "$u" \
+    | sudo tee "/etc/systemd/system/$(basename $u)" >/dev/null
+done
 sudo systemctl daemon-reload
 sudo systemctl enable --now ufc-tipster ufc-deploy.timer
 journalctl -u ufc-tipster -f
 ```
+
+`ufc-tipster` no lleva timer: es un demonio en long polling. `ufc-deploy` sí, y necesita
+`sudo` sin contraseña para reiniciar el bot.
 
 **Despliegue automático.** `deploy/ufc-deploy.sh` + `ufc-deploy.timer` hacen `git fetch`
 cada 5 minutos y, si hay algo nuevo, `reset --hard` y reinician el bot. Es todo el CI/CD
