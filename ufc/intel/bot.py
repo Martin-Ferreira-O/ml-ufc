@@ -11,17 +11,17 @@ import datetime
 import json
 import os
 import pathlib
-import re
 import sys
-import time
 import zoneinfo
 
 from ufc.datos import cartelera
 from ufc.intel import analyzer, identities, sources, store
+# Re-export: el helper se mudo a su propio modulo para que `ufc/ia/` pueda usarlo sin
+# arrastrar todo el bot, pero `bot.con_reintentos` sigue siendo un nombre valido.
+from ufc.intel.reintentos import TRANSIENT_STATUS, _retry_after, con_reintentos  # noqa: F401
 
 
 DEFAULT_TIMEZONE = "America/Santiago"
-TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 def hoy_local():
@@ -30,37 +30,6 @@ def hoy_local():
         return datetime.datetime.now(zoneinfo.ZoneInfo(nombre)).date()
     except zoneinfo.ZoneInfoNotFoundError as exc:
         raise ValueError(f"Zona horaria invalida en UFC_INTEL_TIMEZONE: {nombre}") from exc
-
-
-def _retry_after(exc):
-    details = getattr(exc, "details", None)
-    if not isinstance(details, dict):
-        return None
-    for detail in details.get("error", {}).get("details", []):
-        if not isinstance(detail, dict):
-            continue
-        value = detail.get("retryDelay")
-        match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)s", str(value or ""))
-        if match:
-            return float(match.group(1)) + 1
-    return None
-
-
-def con_reintentos(call, *, sleep=time.sleep, attempts=4, label="IA"):
-    """Respeta RetryInfo de Gemini y reintenta errores transitorios."""
-    for attempt in range(attempts):
-        try:
-            return call()
-        except Exception as exc:
-            response = getattr(exc, "response", None)
-            code = (getattr(exc, "code", None) or
-                    getattr(response, "status_code", None))
-            if code not in TRANSIENT_STATUS or attempt == attempts - 1:
-                raise
-            delay = _retry_after(exc) or (5 * (3 ** attempt))
-            print(f"REINTENTO {label}: HTTP {code}, espera {delay:.0f}s "
-                  f"({attempt + 1}/{attempts - 1})")
-            sleep(delay)
 
 
 def _evento(eventos, fixture=False, hoy=None):

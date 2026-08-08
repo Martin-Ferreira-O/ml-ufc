@@ -6,6 +6,7 @@ import streamlit as st
 
 from ufc import nombres
 from ufc.datos import betano, cartelera, oddsapi
+from ufc.ia import analista, consenso as ia_consenso
 from ufc.modelo import predict
 from ufc.registro import ledger, predictores
 from ufc.ui import comunes
@@ -147,6 +148,50 @@ def _detalle(pelea, fila, suyos, perfiles, retratos):
                                   foto=retratos.get(pelea[lado]))
 
 
+@st.fragment
+def _boton_ia(evento):
+    """Dispara el analisis de la cartelera activa, aislado del resto de la pagina.
+
+    Va en un fragment a proposito: sin el, cada tick de progreso volveria a correr el
+    script entero — o sea, otra consulta a Betano y otra a The Odds API por cada pelea
+    analizada. Con el, solo se redibuja este bloque.
+    """
+    hay_ia = analista.hay_api()
+    disparar = st.button(
+        "Analizar con IA", icon=":material/smart_toy:", disabled=not hay_ia,
+        help=("Un prompt por pelea con todo lo que el repo sabe de los dos peleadores. "
+              "Cada pelea se analiza una vez por día: volver a apretar no vuelve a "
+              "gastar." if hay_ia else
+              "Falta GEMINI_API_KEY en el entorno o en el archivo .env."))
+    if not disparar:
+        return
+    with st.status("Analizando la cartelera…", expanded=True) as estado:
+        try:
+            ctx = ia_consenso.contexto(evento)
+            proveedor = analista.Analista()
+            barra = st.progress(0.0)
+
+            def avance(hechas, total, pelea):
+                barra.progress(hechas / max(total, 1),
+                               text=f"{pelea['a']} vs {pelea['b']}")
+
+            r = ia_consenso.ejecutar(evento, ctx=ctx, provider=proveedor,
+                                     progreso=avance)
+            n = ia_consenso.sincronizar_picks(evento)
+        except (ValueError, OSError) as exc:
+            estado.update(label="No se pudo analizar", state="error")
+            st.error(str(exc), icon=":material/error:")
+            return
+        estado.update(
+            label=(f"Listo — {r['analizadas']} peleas analizadas, {r['omitidas']} ya "
+                   f"estaban de hoy, {r['errores']} con error"),
+            state="error" if r["errores"] else "complete")
+        st.caption(f"{n} picks registradas como «{ia_consenso.IA_PREDICTOR}» · "
+                   f"{r['prompt_tokens']} tokens de entrada, {r['output_tokens']} de salida")
+    comunes.ia_veredictos.clear()
+    st.rerun()
+
+
 def _visible(pelea, busqueda, solo_cuota, cuotas):
     if solo_cuota and not cuotas:
         return False
@@ -206,6 +251,7 @@ def render(modelo, estado, pagina_predictores=None):
                                preds, cuotas_de)
     por_orden = {int(f.orden): f for f in rank.itertuples()}
     checks, perfiles = _intel(evento)
+    veredictos = comunes.ia_veredictos(evento["evento"])
     # Una sola pasada para toda la cartelera: bajar por pelea serian catorce tandas de
     # requests y catorce spinners.
     retratos = comunes.retratos(tuple(p[lado] for p in evento["peleas"]
@@ -228,6 +274,7 @@ def render(modelo, estado, pagina_predictores=None):
         solo_cuota = st.toggle("Solo con cuota", key=_SOLO_CUOTA,
                                help="Esconde las peleas para las que Betano todavía no "
                                     "publicó precio.")
+        _boton_ia(evento)
 
     mostradas = 0
     for i, (pelea, cuotas, r) in enumerate(zip(evento["peleas"], cuotas_de, preds)):
@@ -302,14 +349,23 @@ def render(modelo, estado, pagina_predictores=None):
                                   fotos=(retratos.get(pelea["a"]),
                                          retratos.get(pelea["b"])))
 
+            # El veredicto de la IA va en su propio desplegable y no adentro del de
+            # picks: Streamlit no anida expanders, y ademas es lo que mas se abre.
+            if (ia := veredictos.get((pelea["a"], pelea["b"]))) is not None:
+                comunes.ia_apuesta(ia, pelea)
+                with st.expander("Consenso IA", icon=":material/smart_toy:"):
+                    comunes.ia_tarjeta(ia, pelea)
+
             # Cuando no hay ni una pick ni un informe no se dibuja nada: una cartelera a
             # dos meses no tiene ninguna de las dos cosas y serian catorce filas vacias.
             fila = por_orden[i]
             suyos = [(lado, checks[clave]) for lado in ("a", "b")
                      if (clave := nombres.normalizar(pelea[lado])) in checks]
-            if not fila.predictores and not suyos:
+            if not fila.predictores and not suyos and ia is None:
                 continue
             with st.container(horizontal=True, vertical_alignment="center"):
+                if ia is not None:
+                    comunes.ia_badge(ia, pelea)
                 if fila.predictores:
                     st.badge(f"{fila.senal} · {fila.seleccion or 'sin mayoría'} · "
                              f"{fila.predictores} "

@@ -43,6 +43,13 @@ CONTRA = "Modelo en contra"
 SPLIT = "Opiniones divididas"
 SIN_MODELO = "Consenso sin modelo"
 
+# `ufc/ia/consenso.py` escribe sus picks aca con este origen. Cuentan para `aciertos` y
+# `confiabilidad` —queremos su precision medida con la misma vara que la de las personas—
+# pero NO para el voto de `ranking`: ese mide apoyo humano, y meter ahi a la IA
+# convertiria "Consenso humano" en una etiqueta que miente. Entra como confirmador, al
+# lado del modelo y del mercado.
+ORIGEN_IA = "ia"
+
 ESQUEMA = {
     "type": "OBJECT",
     "required": ["picks"],
@@ -194,6 +201,12 @@ def guardar(filas, evento, predictor, origen="manual", revisado=True,
 
     Acepta las filas historicas de nueve columnas para mantener compatible la API. La
     UI nueva explicita el origen, y cualquier guardado humano confirma la revision.
+
+    `revisado` significa "esta pick es definitiva y se puede puntuar", no "la miro una
+    persona". Para `origen="manual"` las dos cosas coinciden. Para `origen="ia"` no hay
+    nada que confirmar: la pick sale de la cartelera real con los nombres exactos, sin la
+    ambiguedad de lectura que este campo existe para atajar, y entra en True para que
+    `aciertos()` la mida.
     """
     anteriores = leer(evento)
     anteriores = anteriores[anteriores["predictor"] == predictor]
@@ -381,7 +394,11 @@ def comparar(peleas, picks, preds, cuotas_de):
     `preds` y `cuotas_de` van alineados con `peleas` (lo que ya arma la pestania
     Cartelera). Un debut viene sin p_a: ahi el consenso vale igual, es lo unico que hay.
     """
+    # La IA se muestra como una columna mas pero no vota el consenso: `senal` describe si
+    # las personas coinciden entre si, y sumarla ahi cambiaria lo que la etiqueta dice.
+    votantes = picks[picks["origen"] != ORIGEN_IA] if len(picks) else picks
     predictores = sorted(picks["predictor"].unique()) if len(picks) else []
+    humanos = set(votantes["predictor"].unique()) if len(votantes) else set()
     filas = []
     for pelea, r, cuotas in zip(peleas, preds, cuotas_de):
         fila = {"pelea": f"{pelea['a']} vs {pelea['b']}"}
@@ -390,7 +407,8 @@ def comparar(peleas, picks, preds, cuotas_de):
             suya = picks[(picks["predictor"] == quien) & (picks["a"] == pelea["a"])
                          & (picks["b"] == pelea["b"])]
             lado = suya["pick"].iloc[0] if len(suya) else None
-            lados.append(lado)
+            if quien in humanos:
+                lados.append(lado)
             fila[quien] = _quien(pelea, lado)
 
         modelo = ("a" if r["p_a"] >= 0.5 else "b") if "p_a" in r else None
@@ -470,10 +488,14 @@ def confiabilidad():
 def ranking(peleas, picks, preds, cuotas_de):
     """Ordena las peleas por apoyo humano y confirmaciones independientes.
 
-    Solo usa picks revisadas. El modelo y el favorito de mercado no cambian el voto
-    humano: confirman la direccion y resuelven el orden entre apoyos parecidos.
+    Solo usa picks revisadas. El modelo, el favorito de mercado y la IA no cambian el
+    voto humano: confirman la direccion y resuelven el orden entre apoyos parecidos.
     """
     picks = picks[picks["revisado"]].copy() if len(picks) else picks
+    # La IA sale del voto y entra como confirmador. Si votara, una cartelera con dos
+    # personas y la IA daria "Consenso humano" con un humano en minoria.
+    ia = picks[picks["origen"] == ORIGEN_IA] if len(picks) else picks
+    picks = picks[picks["origen"] != ORIGEN_IA] if len(picks) else picks
     pesos_df = confiabilidad()
     pesos = dict(zip(pesos_df["predictor"], pesos_df["peso"]))
     precision = dict(zip(pesos_df["predictor"], pesos_df["acierto"]))
@@ -505,9 +527,12 @@ def ranking(peleas, picks, preds, cuotas_de):
 
         lado_modelo = ("a" if r["p_a"] >= 0.5 else "b") if "p_a" in r else None
         lado_mercado = None if not cuotas else ("a" if cuotas[0] <= cuotas[1] else "b")
+        suya_ia = ia[(ia["a"] == pelea["a"]) & (ia["b"] == pelea["b"])] if len(ia) else ia
+        lado_ia = suya_ia["pick"].iloc[0] if len(suya_ia) else None
         conf_modelo = bool(lado and lado == lado_modelo)
         conf_mercado = bool(lado and lado == lado_mercado)
-        confirmaciones = int(conf_modelo) + int(conf_mercado)
+        conf_ia = bool(lado and lado == lado_ia)
+        confirmaciones = int(conf_modelo) + int(conf_mercado) + int(conf_ia)
         fuerte = bool(lado and len(pp) >= 2 and apoyo >= 2 / 3 and confirmaciones)
         if fuerte:
             senal = "Señal fuerte"
@@ -526,7 +551,8 @@ def ranking(peleas, picks, preds, cuotas_de):
             "seleccion": _quien(pelea, lado), "apoyo": apoyo,
             "votos": conteo.get(lado, 0) if lado else 0,
             "predictores": len(pp), "modelo_confirma": conf_modelo,
-            "mercado_confirma": conf_mercado, "confirmaciones": confirmaciones,
+            "mercado_confirma": conf_mercado, "ia_confirma": conf_ia,
+            "ia_eligio": _quien(pelea, lado_ia), "confirmaciones": confirmaciones,
             "senal": senal, "fuerte": fuerte, "detalle": detalle,
             "cuota": (cuotas[0] if lado == "a" else cuotas[1]) if cuotas and lado else np.nan,
         })
