@@ -66,6 +66,9 @@
   `resultados.csv` y el estado (un flag que se llama seco y deja rastro no sirve para
   probar nada), y `sincronizar()` podia pisar picks sin pushear. Ahora se desactiva sola
   donde existe `model.pkl`: esa es la maquina que los genera, no la que los recibe.
+- 2026-08-08 — Claude — snapshot de datos commiteado aparte del codigo: ticks de
+  betano/oddsapi y filas de ledger que produjo la app durante la sesion, mas las tres
+  primeras filas de `resultados.csv` escritas por `ufc.datos.resultados` desde ESPN.
 - 2026-08-08 — Claude — verificado en vivo contra Gamrot vs Salkilld mientras se peleaba:
   tres resueltas, la IA 3 de 3 (Miles Johns por KO R1, Juliana Miller por sumision R2,
   Carol Foro). El mensaje de Canuto-Foro salio sin metodo porque ESPN no lo publico, que
