@@ -91,12 +91,23 @@ def _archivar(eventos, hoy=None):
                     vistas.add(clave)
 
 
+def scoreboard(desde, hasta):
+    """El payload crudo de ESPN para un rango de fechas.
+
+    Vive aca y no en cada llamador porque el mismo endpoint sirve las dos cosas: las
+    carteleras que vienen (`proximas`) y los resultados de la que se esta peleando
+    (`ufc.datos.resultados`). Una sola URL, un solo timeout, un solo lugar donde mirar
+    cuando ESPN cambie algo.
+    """
+    r = requests.get(API, timeout=30, params={
+        "dates": f"{desde:%Y%m%d}-{hasta:%Y%m%d}"})
+    r.raise_for_status()
+    return r.json()
+
+
 def proximas(dias=90):
     hoy = datetime.date.today()
-    r = requests.get(API, timeout=30, params={
-        "dates": f"{hoy:%Y%m%d}-{hoy + datetime.timedelta(days=dias):%Y%m%d}"})
-    r.raise_for_status()
-    eventos = _parsear(r.json())
+    eventos = _parsear(scoreboard(hoy, hoy + datetime.timedelta(days=dias)))
     _archivar(eventos)
     return eventos
 

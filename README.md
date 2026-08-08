@@ -241,6 +241,95 @@ versiones del prompt: la `v1` le mostraba a la IA el modelo, el mercado y las pi
 humanas, así que sus veredictos son los de otro predictor y `evaluar()` los deja afuera.
 Promediarlos daría el rendimiento de algo que no existe.
 
+**Y se guarda el input, no sólo el veredicto.** El informe de cada pelea
+(`data/ia_informes/<evento>/<a>__<b>.json`) lleva bajo `_prompt` el texto exacto que se
+envió y bajo `_dossier` el dict del que salió. La columna `huella` es un sha256 de ese
+texto: sirve para saber si dos veredictos vieron lo mismo, no para auditar por qué opinó
+lo que opinó. Son ~17 KB por pelea, en una carpeta que ya estaba fuera de git.
+
+## Bot de Telegram: la IA narrada en vivo
+
+Un tipster se juzga en vivo. `ufc.tipster` es un bot que, mientras se pelea la cartelera,
+avisa pelea por pelea si la IA acertó o falló —con método y asalto— y contesta comandos
+para no tener que abrir la app.
+
+```bash
+# Una vuelta, imprime lo que mandaría y no llama a Telegram ni escribe nada
+.venv/bin/python -m ufc.tipster --seco
+
+# Probar un comando suelto
+.venv/bin/python -m ufc.tipster --comando "/hoy"
+
+# El bucle (necesita TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_IDS)
+.venv/bin/python -m ufc.tipster
+```
+
+Un aviso real se ve así:
+
+```
+🥊 3ª pelea de la noche · Featherweight (#10 de 12 en el cartel)
+
+✅ ACERTADA · Yadier del Valle por decisión en el asalto 3
+
+La IA iba con Yadier del Valle al 65% (confianza media, y le acertó
+también al método: decisión).
+👥 Predictores: 6 de 6 por Yadier del Valle
+💰 Tu simple de $10.000: ganada, $5.400 netos.
+
+📊 Van 2 de 3 en esta cartelera.
+```
+
+Comandos: `/cartelera` (la próxima con el pick de la IA en cada pelea), `/pelea <n>` (el
+razonamiento completo: razones por fuente, factores no modelables, contraargumento,
+cuotas), `/ia` (la salida de `ufc.ia.evaluar`) y `/hoy` (cómo va la cartelera en curso).
+
+**De dónde salen los resultados en vivo.** De la misma API de ESPN que ya usaba
+`ufc.datos.cartelera` para las carteleras futuras: el endpoint devuelve las dos cosas y
+`_parsear` simplemente descartaba todo lo que no estuviera en `state == "pre"`.
+`ufc.datos.resultados` lee la otra mitad —ganador, método, asalto y minuto— y la vuelca a
+`data/resultados.csv`, con lo cual la app entera (`ia.evaluar`, `ledger`,
+`predictores.aciertos`, la liquidación de apuestas) ve el resultado el mismo día en vez
+de esperar el refresh diario del mirror de UFCStats. Cero dependencias nuevas: Telegram
+también es HTTP plano contra `requests`.
+
+**Los picks viajan por git.** Los genera tu máquina, que es la que tiene el modelo
+entrenado; el bot los lee de la rama remota con `git fetch` + `git show` (no `git pull`:
+el clon de la VPS tiene `data/cartelera_hist.csv` modificado y el pull se caería). O sea
+que **hay que pushear `data/ia_consenso.csv` antes de la cartelera**. Si no están, el bot
+lo dice en vez de callarse.
+
+### En la VPS
+
+```bash
+# 1. Pedile un token a @BotFather y agregá las dos variables a /etc/ml-ufc/intel.env
+#    TELEGRAM_BOT_TOKEN=...   (también se acepta TOKEN_BOT)
+#    TELEGRAM_CHAT_IDS=...
+# 2. Instalá las unidades (ufc-tipster no lleva timer: es un demonio en long polling)
+sudo cp deploy/ufc-tipster.service deploy/ufc-deploy.service /etc/systemd/system/
+sudo cp deploy/ufc-deploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ufc-tipster ufc-deploy.timer
+journalctl -u ufc-tipster -f
+```
+
+**Despliegue automático.** `deploy/ufc-deploy.sh` + `ufc-deploy.timer` hacen `git fetch`
+cada 5 minutos y, si hay algo nuevo, `reset --hard` y reinician el bot. Es todo el CI/CD
+que este proyecto necesita: el repo es público, así que no hay credenciales que rotar, y
+un fetch periódico cuesta menos que mantener un runner o abrir un puerto para un webhook.
+El `reset` corre **solo cuando hay un commit nuevo**, no en cada vuelta: entre despliegues
+el bot escribe `data/resultados.csv` y el de inteligencia appendea
+`data/cartelera_hist.csv`, los dos versionados, y resetear siempre les pasaría el trapo
+cada cinco minutos. Reinstala las unidades systemd si cambiaron, actualiza el venv si
+cambió `requirements.txt`, y **reinicia el bot solo si cambió código Python**: un push que
+toca únicamente `data/` —el caso normal, picks nuevos antes de una cartelera— no necesita
+reinicio porque el bot ya sincroniza esos CSV en cada vuelta de su bucle.
+
+`TELEGRAM_CHAT_IDS` es una allowlist separada por comas y no es opcional: sin ella el bot
+no le habla a nadie. Publica picks antes de que se peleen, tu ROI y tu banca; cualquiera
+puede encontrar un bot y escribirle. A un `chat_id` que no está en la lista lo ignora en
+silencio —contestarle le confirmaría que hay algo del otro lado— pero deja el id en el
+log, que es como averiguás el tuyo la primera vez.
+
 ## Pipeline
 
 Correr en este orden, desde la raíz del repo. Total: un par de minutos. Van con `-m`
@@ -283,8 +372,9 @@ test_app.py             la suite entera, sin red
 ufc/
 ├── rutas.py            todas las rutas, ancladas al repo y no al CWD
 ├── nombres.py          normalizar(): la clave canónica de un peleador
+├── tipster.py          el bot de Telegram: narra la cartelera en vivo
 ├── datos/              lo que toca la red: fetch, wiki, sherdog, cartelera,
-│                       betano, oddsapi
+│                       resultados, betano, oddsapi
 ├── modelo/             el núcleo: features, train, predict, calibra, backtest,
 │                       devig, pool, apuesta, gate
 ├── registro/           seguimiento del modelo, predictores, apuestas reales y banca
@@ -355,9 +445,11 @@ Lo demás queda fuera de Git a propósito, y no sólo por tamaño:
 | `ufc/ia/historial.py` | El historial deportivo que ninguna columna promediada da: récord en UFC, **por qué vía gana y por qué vía pierde** cada uno, y las últimas seis peleas con rival, método, round y el Elo de ese rival. Sale de `data/raw/ufc_fight_results.csv` y corta en la fecha del evento, la misma regla anti-leakage que respeta `predict._snapshot`. Es la diferencia entre "gana el 70%" y "nunca lo noquearon en 13 peleas y sus derrotas fueron por decisión contra top-5". | — |
 | `ufc/ia/dossier.py` | Arma y renderiza el prompt de una pelea: las 28 features de los dos en **valor absoluto** (`features.csv` guarda diferencias, y "elo +84" no se puede leer sin saber si son 1500 contra 1416 o 2100 contra 2016), el récord y el historial, el método de la división, la inteligencia delimitada como contenido no confiable y las banderas de lo que falta. **Calcula las secciones de modelo y mercado pero no las escribe**: alimentan el snapshot de control de `store.fila_desde`. El registro ve el precio; el prompt no. Es puro y sin red: el prompt entero se testea offline, y `--dry-run` lo imprime. | — |
 | `ufc/ia/analista.py` | El esquema de respuesta y `validar()`, que es donde vive el trabajo: clampeo, coerción de enums, descarte de razones sin fuente, corrección de la pick cuando contradice su propia probabilidad, y el ajuste de la probabilidad cuando dice "pareja" y pone 82%. `ev_contra_mercado()` calcula el EV **en Python y después del veredicto**, con una cuota que la IA nunca vio. | — |
-| `ufc/ia/store.py` | `data/ia_consenso.csv` (numérico, versionado) y `data/ia_informes/` (prosa, fuera de git). Idempotencia por `(evento, a, b, run_day)`: una pelea se analiza una vez por día, y es lo único que evita que un rerun de Streamlit multiplique el costo. `prompt_v` separa las cohortes de cada versión del prompt. | `data/ia_consenso.csv` |
+| `ufc/ia/store.py` | `data/ia_consenso.csv` (numérico, versionado) y `data/ia_informes/` (prosa, fuera de git). Idempotencia por `(evento, a, b, run_day)`: una pelea se analiza una vez por día, y es lo único que evita que un rerun de Streamlit multiplique el costo. `prompt_v` separa las cohortes de cada versión del prompt. El informe guarda además, bajo `_prompt` y `_dossier`, el input exacto con el que se produjo el veredicto: la `huella` es un hash y con un hash no se audita nada. | `data/ia_consenso.csv` |
 | `ufc/ia/consenso.py` | `python -m ufc.ia.consenso`. Recorre la cartelera, arma un dossier por pelea, llama a Gemini con reintentos y guarda. Vuelca las picks a `picks.csv` como `IA (Gemini)` con `origen="ia"`. `--dry-run` imprime el prompt sin llamar a la API. | `data/ia_consenso.csv`, `data/picks.csv` |
 | `ufc/ia/evaluar.py` | `python -m ufc.ia.evaluar`. Lo que hace refutable a toda la capa: acierto de la pick, log loss de la IA contra modelo y mercado **sobre las mismas peleas**, y `ev_al_cierre` de cada pick con IC95% clusterizado por evento. El CLV se mide sobre **todas** las picks porque la IA es ciega al precio: no elige cuáles apostar, y por eso su lectura se puede comparar limpiamente contra la línea de cierre. Deliberadamente **no escribe en `data/ledger.csv`**: esa es la cohorte preregistrada que lee `gate.estado()` y mezclarle una segunda población la arruinaría. | — |
+| `ufc/datos/resultados.py` | `python -m ufc.datos.resultados`. Ganador, método, asalto y minuto de la cartelera que se está peleando, **minutos después de cada combate**, desde la misma API de ESPN que ya usaba `cartelera.py`: el endpoint devuelve también los eventos terminados y `_parsear` descartaba todo lo que no estuviera en `state == "pre"`. Escribe los ganadores en `data/resultados.csv`, con lo cual `ia.evaluar`, `ledger`, `predictores.aciertos()` y la liquidación de apuestas ven el resultado el mismo día en vez de esperar el refresh diario del mirror de UFCStats. Los textos de método de ESPN son los **no oficiales** (play-by-play), así que solo se persiste el ganador: un `overturned` posterior lo corrige el mirror, que tiene prioridad en `predictores._indice_resultados`. | `data/resultados.csv` |
+| `ufc/tipster.py` | `python -m ufc.tipster`. El bot de Telegram: mientras se pelea la cartelera avisa pelea por pelea si la IA acertó o falló, con método y asalto, más el consenso de predictores y cómo le fue a tu plata; manda un preview 3 h antes y un cierre con la serie histórica de `ia.evaluar`. Comandos `/cartelera`, `/pelea <n>`, `/ia`, `/hoy`. Sin librería de Telegram (la Bot API es HTTP plano y `getUpdates` con timeout hace de long polling **y** de reloj del bucle) y **sin el modelo**: todo sale de los CSV versionados, porque `data/model.pkl` no existe en la VPS. Allowlist de `chat_id` obligatoria. | `data/tipster.json`, `data/resultados.csv` |
 | `ufc/registro/banca.py` | La banca declarada, aparte de `apuestas.csv` porque cambia con depósitos y retiros, no con cada apuesta. Es el denominador de todo staking: sin banca, un importe es un número y no una decisión de riesgo. | `data/banca.json` |
 | `app.py` + `ufc/ui/` | UI Streamlit con navegación superior. **Resumen** concentra próxima cartelera, señales y rendimiento; **Predictores** carga picks/resultados con un clic por ganador y permite corregir eventos pasados; **Apuestas** arma una boleta confirmable, declara la banca, muestra el stake que correspondería y el estado del gate, y expone la matemática real de una combinada; **Seguimiento** conserva separado el forward test hipotético con el CLV y su IC95%; **Backtest** muestra la grilla de umbrales, el bankroll, el staking, el drawdown y los segmentos que produce `ufc/modelo/backtest.py`. **Cartelera** es el cartel del evento y nada más: se toca una pelea sobre la imagen y el análisis completo de esa pelea —modelo, mercado, coincidencia, IA, picks e inteligencia— abre en un modal. Matchup mantiene el detalle del modelo y mercado para dos peleadores cualesquiera. | — |
 | `ufc/ui/cartel.py` | El cartel del evento como PNG (Pillow) y el clic sobre cada pelea. Compone foto, bandera, apellidos, peso en castellano y la barra del modelo al estilo del cartel oficial, y lo cachea por contenido en `static/carteles/<evento>-<hash>.png` — el hash incluye el de este archivo, así que tocar el layout invalida los carteles viejos. Encima del PNG monta un componente CCv2 con un botón transparente por pelea: Streamlit no tiene regiones clickeables sobre una imagen, y es lo único que convierte al cartel en navegación. | `static/carteles/`, `static/banderas/` |

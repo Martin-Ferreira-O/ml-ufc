@@ -1,0 +1,12 @@
+[Unit]
+Description=Revisa GitHub cada pocos minutos y despliega lo que haya nuevo
+
+[Timer]
+# Cada 5 minutos. Los picks nuevos igual llegan antes: el bot sincroniza los CSV de
+# `data/` en cada vuelta de su bucle, sin esperar a este timer, que existe para el codigo.
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=ufc-deploy.service
+
+[Install]
+WantedBy=timers.target

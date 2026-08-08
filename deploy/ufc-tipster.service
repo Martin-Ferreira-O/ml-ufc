@@ -1,0 +1,27 @@
+[Unit]
+Description=Bot de Telegram que narra la cartelera UFC en vivo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# A diferencia de ufc-intel.service esto NO es oneshot y no lleva timer: es un demonio
+# que se queda en long polling contra Telegram. El reloj del bucle es el timeout de
+# getUpdates, asi que no hay nada que programar.
+Type=simple
+Restart=always
+RestartSec=30
+User=REEMPLAZAR_USUARIO
+Group=REEMPLAZAR_GRUPO
+WorkingDirectory=/opt/ml-ufc
+EnvironmentFile=/etc/ml-ufc/intel.env
+ExecStart=/opt/ml-ufc/.venv/bin/python -u -m ufc.tipster
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# data/ para el estado del bot y los resultados; .git/ porque sincroniza los picks con
+# `git fetch` desde la rama remota (ver `tipster.sincronizar`).
+ReadWritePaths=/opt/ml-ufc/data /opt/ml-ufc/.git
+
+[Install]
+WantedBy=multi-user.target

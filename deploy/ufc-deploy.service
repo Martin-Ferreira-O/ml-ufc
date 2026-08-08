@@ -1,0 +1,13 @@
+[Unit]
+Description=Trae la ultima version del repo y reinicia el bot si hace falta
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=REEMPLAZAR_USUARIO
+Group=REEMPLAZAR_GRUPO
+WorkingDirectory=/opt/ml-ufc
+ExecStart=/opt/ml-ufc/deploy/ufc-deploy.sh
+NoNewPrivileges=false
+PrivateTmp=true

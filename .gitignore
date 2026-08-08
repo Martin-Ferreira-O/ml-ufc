@@ -32,6 +32,7 @@ data/*
 #   data/intel.db        dossiers de personas reales generados por LLM
 #   data/ia_informes/    lo mismo, pero por pelea: razonamiento de un LLM sobre gente real
 #   data/apuestas*.csv   apuestas con plata real, en CLP
+#   data/tipster.json    que avisos ya mando el bot; es estado de una maquina, no dato
 #   data/*.backup .bak   copias locales
 
 # Fotos de peleadores: 50 MB de imagenes con derechos de UFC/Sherdog.
