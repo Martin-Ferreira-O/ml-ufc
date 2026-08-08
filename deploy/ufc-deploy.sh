@@ -40,7 +40,12 @@ fi
 
 if echo "$CAMBIOS" | grep -q '^deploy/.*\.\(service\|timer\)$'; then
     echo "unidades systemd cambiaron: reinstalando"
-    sudo cp "$RAIZ"/deploy/*.service "$RAIZ"/deploy/*.timer /etc/systemd/system/
+    # Las del repo son plantillas con REEMPLAZAR_USUARIO/GRUPO adentro. Copiarlas crudas
+    # dejaria unidades que no arrancan, y encima justo despues de un deploy exitoso.
+    for unidad in "$RAIZ"/deploy/*.service "$RAIZ"/deploy/*.timer; do
+        sed -e "s/REEMPLAZAR_USUARIO/$(id -un)/" -e "s/REEMPLAZAR_GRUPO/$(id -gn)/" \
+            "$unidad" | sudo tee "/etc/systemd/system/$(basename "$unidad")" >/dev/null
+    done
     sudo systemctl daemon-reload
 fi
 

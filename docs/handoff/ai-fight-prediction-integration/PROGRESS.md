@@ -66,6 +66,12 @@
   `resultados.csv` y el estado (un flag que se llama seco y deja rastro no sirve para
   probar nada), y `sincronizar()` podia pisar picks sin pushear. Ahora se desactiva sola
   donde existe `model.pkl`: esa es la maquina que los genera, no la que los recibe.
+- 2026-08-08 — Claude — desplegado en la VPS. `/opt/ml-ufc` no era un clon (se habia
+  copiado con scp) y no tenia git: se instalo git y se hizo `git init` + `reset --hard`
+  en el lugar, que trae los archivos versionados y deja intactos los untracked, o sea
+  `intel.db` y los perfiles. `ufc-deploy.sh` reinstala las unidades systemd sustituyendo
+  REEMPLAZAR_USUARIO/GRUPO: copiarlas crudas dejaba unidades que no arrancan, justo
+  despues de un deploy exitoso.
 - 2026-08-08 — Claude — snapshot de datos commiteado aparte del codigo: ticks de
   betano/oddsapi y filas de ledger que produjo la app durante la sesion, mas las tres
   primeras filas de `resultados.csv` escritas por `ufc.datos.resultados` desde ESPN.
