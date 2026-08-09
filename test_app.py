@@ -1655,30 +1655,47 @@ def check_ia_evaluar():
             predictores.RESULTADOS = pathlib.Path(tmp) / "resultados.csv"
 
             d = _ia_dossier()
-            for pick, p_ia in (("a", 0.70), ("b", 0.35)):
+            # (veredicto, pick, p_a, ganador). La tercera es la que importa: una pelea que
+            # la IA declaro pareja NO es una pick, y contarla en el record fue exactamente
+            # el bug del "7 de 8" —3 picks reales y 5 monedas al aire sumadas juntas—.
+            casos = [("definido", "a", 0.70, "a"),   # eligio A, gano A: acierto
+                     ("definido", "b", 0.35, "a"),   # eligio B, gano A: fallo
+                     ("parejo", "a", 0.52, "a")]     # no eligio; su inclinacion acerto
+            for i, (veredicto, pick, p_ia, _) in enumerate(casos, 1):
                 fila = ia_store.fila_desde(
-                    {"veredicto": "definido", "pick": pick, "p_a": p_ia,
+                    {"veredicto": veredicto, "pick": pick, "p_a": p_ia,
                      "confianza": "media", "metodo_probable": None, "razones": [],
                      "factores_no_modelables": []},
-                    d, run_day=f"2026-08-0{1 if pick == 'a' else 2}", modelo_ia="test")
-                fila["a"] = f"Peleador {pick.upper()}"
+                    d, run_day=f"2026-08-0{i}", modelo_ia="test")
+                fila["a"] = f"Peleador {i}"
                 fila["b"] = "Rival Comun"
                 ia_store.guardar(fila, {"contra": ""})
 
             # el ganador se carga a mano: sin data/raw no hay resultados de ufcstats
             predictores.guardar_resultados(
-                [[_IA_EVENTO["evento"], "Peleador A", "Rival Comun", "a"],
-                 [_IA_EVENTO["evento"], "Peleador B", "Rival Comun", "b"]],
-                _IA_EVENTO["evento"])
+                [[_IA_EVENTO["evento"], f"Peleador {i}", "Rival Comun", gana]
+                 for i, (*_, gana) in enumerate(casos, 1)], _IA_EVENTO["evento"])
 
             df = ia_evaluar.evaluar()
-            assert len(df) == 2, df
-            # acerto la primera (eligio a, gano a) y erro la segunda (eligio b, gano b?)
+            assert len(df) == 3, df
             assert set(df["acierto"]) <= {0.0, 1.0}
+            assert list(df["es_pick"]) == [True, True, False], df["es_pick"].tolist()
             assert df["ll_ia"].notna().all() and df["ll_modelo"].notna().all()
+
+            # el record de picks deja afuera la pareja; su inclinacion se reporta aparte
+            m = ia_evaluar.metricas(df)
+            assert (m["picks_ok"], m["picks_n"]) == (1, 2), m
+            assert (m["parejas_ok"], m["parejas_n"]) == (1, 1), m
+
             texto = ia_evaluar.resumen(df)
             assert "Cohorte IA" in texto and "log loss" in texto
             assert "ledger.csv`) no se toca" in texto
+            assert "1 de 2 (50%)" in texto, texto
+            assert "2 de 3" not in texto, "la pareja se colo en el record de picks"
+            # con una sola cartelera el bootstrap por clusters devuelve siempre el mismo
+            # numero: el IC de ancho cero que salia antes decia certeza absoluta
+            assert "sin IC95%" in texto and "IC95% [+0.0000, +0.0000]" not in texto, texto
+            assert "prompt v2" in texto and "prompt vv" not in texto, texto
             # el CLV se mide sobre la pick, no sobre un subconjunto que la IA aprobo: es
             # ciega al precio, y por eso mismo es la comparacion que vale
             assert "nunca vio el precio" in texto, texto
@@ -1691,8 +1708,8 @@ def check_ia_evaluar():
             mezcla.loc[mezcla.index[0], "prompt_v"] = "1"
             mezcla.to_csv(ia_store.ARCHIVO, index=False)
 
-            assert len(ia_evaluar.evaluar()) == 1, "solo la fila de la version actual"
-            assert len(ia_evaluar.evaluar(prompt_v=None)) == 2, "pero se pueden pedir las dos"
+            assert len(ia_evaluar.evaluar()) == 2, "solo las filas de la version actual"
+            assert len(ia_evaluar.evaluar(prompt_v=None)) == 3, "pero se pueden pedir todas"
             assert len(ia_evaluar.evaluar(prompt_v="1")) == 1, "y la vieja por su cuenta"
     finally:
         ia_store.ARCHIVO, ia_store.INFORMES = archivo, informes
@@ -1893,6 +1910,30 @@ def check_tipster_allowlist():
         assert tipster.responder("hola") is None
         assert tipster.responder("") is None
         assert tipster.responder("/borrar_todo") is None
+
+        # el catalogo es la unica fuente de los tres consumidores. Si alguien agrega un
+        # comando al dict y no al catalogo, el menu de Telegram queda viejo en silencio.
+        for comando, descripcion, _ in tipster.CATALOGO:
+            assert f"/{comando}" in tipster.COMANDOS, comando
+            assert f"/{comando} — " in tipster.AYUDA, comando
+            assert 0 < len(descripcion) <= 256, comando   # el tope de la Bot API
+
+        llamadas = []
+        api_real = tipster._api
+        try:
+            tipster._api = lambda metodo, **params: llamadas.append((metodo, params))
+            tipster.registrar_menu()
+        finally:
+            tipster._api = api_real
+        metodo, params = llamadas[0]
+        assert metodo == "setMyCommands", llamadas
+        assert ([c["command"] for c in params["commands"]]
+                == [c for c, _, _ in tipster.CATALOGO]), params
+
+        # los comandos que solo leen CSV versionados tienen que andar en la VPS, donde no
+        # hay ni modelo entrenado ni red
+        assert "Regla de apuestas" in tipster.cmd_gate()
+        assert "Tabla de predictores" in tipster.cmd_predictores()
     finally:
         if previo is None:
             os.environ.pop("TELEGRAM_CHAT_IDS", None)

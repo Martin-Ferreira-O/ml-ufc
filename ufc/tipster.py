@@ -35,7 +35,8 @@ import requests
 
 from ufc import nombres, rutas
 from ufc.datos import cartelera, resultados
-from ufc.ia import evaluar as ia_evaluar, store as ia_store
+from ufc.ia import dossier, evaluar as ia_evaluar, store as ia_store
+from ufc.modelo import gate
 from ufc.registro import apuestas, predictores
 
 # `predictores` corre `cargar_env()` al importarse, asi que el .env ya esta cargado.
@@ -346,11 +347,11 @@ def texto_cierre(evento, ia):
     else:
         cabeza = (f"🏁 <b>Terminó {_e(evento['evento'])}</b>\n\n"
                   f"La IA no dejó ninguna pick registrada para esta cartelera.")
-    try:
-        historia = ia_evaluar.resumen()
-    except (OSError, KeyError, ValueError) as exc:
-        historia = f"No se pudo calcular la serie histórica: {exc}"
-    return f"{cabeza}\n\n<pre>{_e(historia)}</pre>"
+    # `marcador` cuenta todas las picks de la noche; el bloque de abajo mide solo la cohorte
+    # del prompt actual. Son dos numeros distintos y verlos juntos sin este renglon es
+    # justamente lo que hace pensar que uno de los dos esta mal.
+    return (f"{cabeza}\n\nAcá abajo, la serie completa — ahí solo entra la cohorte del "
+            f"prompt {_e(dossier.VERSION)}.\n\n{cmd_ia()}")
 
 
 def cronologicas(evento):
@@ -386,16 +387,6 @@ def marcador(evento, ia):
 
 
 # ------------------------------------------------------------------- comandos
-
-AYUDA = """👋 <b>Tipster UFC</b>
-
-/cartelera — la próxima cartelera con el pick de la IA en cada pelea
-/pelea &lt;n&gt; — el razonamiento completo de una pelea
-/ia — cómo le viene yendo a la IA contra el modelo y el mercado
-/hoy — cómo va la cartelera que se está peleando
-
-Los avisos de acierto y fallo salen solos, pelea por pelea."""
-
 
 def _evento_actual():
     """La cartelera a la que se refieren los comandos: la de hoy, o la próxima."""
@@ -493,15 +484,103 @@ def _razonamiento(evento, pelea):
 
 def cmd_ia():
     try:
-        cohorte = ia_evaluar.evaluar()
-        texto = f"<pre>{_e(ia_evaluar.resumen(cohorte))}</pre>"
+        m = ia_evaluar.metricas()
     except (OSError, KeyError, ValueError) as exc:
         return f"No se pudo calcular: {_e(exc)}"
-    if len(cohorte):
-        return texto
-    # Un "no hay nada" a secas se lee como que el registro no anda. Casi siempre lo que
-    # pasa es que las peleas resueltas son de una version anterior del prompt, y esas
-    # `evaluar()` las deja afuera a proposito: son otro predictor con el mismo nombre.
+    return _texto_ia(m) if m else _ia_sin_cohorte()
+
+
+def _texto_ia(m):
+    """El reporte de la IA como mensaje de Telegram, no como salida de terminal.
+
+    El formato viejo era `ia_evaluar.resumen()` metido en un `<pre>`: en un teléfono eso
+    sale en monospace diminuto y con scroll horizontal, que es exactamente lo que hacía
+    ilegible el número más importante. Acá solo queda en `<pre>` lo que de verdad son
+    columnas —el log loss—; el resto es texto con jerarquía.
+    """
+    ok_p, n_p = m["picks_ok"], m["picks_n"]
+    p = ["🤖 <b>Cómo le va a la IA</b>",
+         f"<i>Prompt {_e(m['prompt_v'])} · ciega al mercado: no ve cuotas, ni la "
+         f"probabilidad del modelo, ni las picks humanas.</i>",
+         "",
+         f"🎯 <b>Sus picks: {_e(ia_evaluar.marca(ok_p, n_p))}</b>",
+         "Solo cuenta lo que declaró «definido»."]
+
+    if m["parejas_n"]:
+        p += ["",
+              f"⚪️ <b>Declaró parejas: {m['parejas_n']} de {m['n']} peleas</b>",
+              f"No son picks y no entran a <code>picks.csv</code>. Su inclinación mínima "
+              f"acertó {_e(ia_evaluar.marca(m['parejas_ok'], m['parejas_n']))}."]
+
+    filas = [f"{nombre:8s} {media:.4f}  n={k}"
+             for nombre, (media, k) in m["ll"].items() if media is not None]
+    if filas:
+        p += ["",
+              "📊 <b>Qué tan buenas son sus probabilidades</b>",
+              "<i>log loss sobre toda la cohorte, más bajo es mejor</i>",
+              f"<pre>{_e(chr(10).join(filas))}</pre>",
+              _lectura_deltas(m)]
+
+    p += ["", "💵 <b>CLV contra la línea de cierre</b>",
+          "<i>La IA nunca vio el precio, así que esto mide si su lectura deportiva le "
+          "gana al mercado.</i>"]
+    if m["clv"]:
+        c = m["clv"]
+        ic = "" if c["lo"] is None else f" · IC95% [{c['lo']:+.1%}, {c['hi']:+.1%}]"
+        p.append(f"EV medio <b>{c['media']:+.1%}</b> en "
+                 f"{_e(ia_evaluar.plural(c['n'], 'pelea'))}{ic}")
+        if c["faltan"]:
+            p.append(f"Para concluir un CLV de +2% harían falta ~{c['faltan']} peleas.")
+    else:
+        p.append("Todavía no hay ninguna pelea con precio de apertura y de cierre.")
+
+    p += ["", f"⏳ <b>Muestra: {_e(ia_evaluar.plural(m['n'], 'pelea'))} de "
+              f"{_e(ia_evaluar.plural(m['carteleras'], 'cartelera'))}.</b> "
+              f"Nada de esto concluye nada todavía."]
+
+    hechas, total = m["total_picks"]
+    if total:
+        p += ["", f"📚 <b>Historial completo: {_e(ia_evaluar.marca(hechas, total))} en "
+                  f"picks.csv</b>",
+              "Incluye las peleas de versiones anteriores del prompt, que sí veían el "
+              "modelo, el mercado y las picks humanas. Por eso no entran arriba: son "
+              "otro predictor."]
+
+    p += ["", "<i>La cohorte del gate (data/ledger.csv) no se toca: esto se mide "
+              "aparte.</i>"]
+    return "\n".join(p)
+
+
+def _lectura_deltas(m):
+    """La frase que traduce el delta pareado a castellano: quién le gana a quién.
+
+    El delta es `otro - IA` sobre log loss, así que negativo significa que el otro pierde
+    menos, o sea que es mejor. Sin esta línea el usuario tiene que acordarse del signo.
+    """
+    frases = [f"el {nombre} {'le gana' if media < 0 else 'va por detrás'} ({media:+.4f})"
+              for nombre, (media, _lo, _hi, n) in m["deltas"].items() if n]
+    if not frases:
+        return ""
+    ics = [d for d in m["deltas"].values() if d[3]]
+    if any(lo is None for _m, lo, _hi, _n in ics):
+        cola = (f" — con {_e(ia_evaluar.plural(m['carteleras'], 'cartelera'))} no hay "
+                f"IC95% posible, así que no concluye nada")
+    elif all(lo <= 0 <= hi for _m, lo, hi, _n in ics):
+        cola = " — pero el IC95% toca cero, así que todavía no concluye nada"
+    else:
+        cola = " — y el IC95% no toca cero"
+    return f"Pelea por pelea: {', '.join(frases)}{cola}."
+
+
+def _ia_sin_cohorte():
+    """Sin cohorte v2 no hay nada que promediar, pero casi nunca es que el registro falle.
+
+    Lo habitual es que las peleas resueltas sean de una versión anterior del prompt, y esas
+    `evaluar()` las deja afuera a propósito: son otro predictor con el mismo nombre. Un "no
+    hay nada" a secas se lee como que el bot está roto.
+    """
+    texto = "🤖 <b>Cómo le va a la IA</b>\n\nTodavía no hay ninguna pelea analizada con " \
+            f"el prompt {_e(dossier.VERSION)} que tenga resultado cargado."
     try:
         viejas = len(ia_evaluar.evaluar(prompt_v=None))
     except (OSError, KeyError, ValueError):
@@ -512,6 +591,103 @@ def cmd_ia():
                   f"humanas, así que sus veredictos son los de otro predictor y "
                   f"promediarlos daría el rendimiento de algo que no existe.")
     return texto
+
+
+def cmd_predictores():
+    """La tabla de aciertos: la IA contra las personas, medidas con la misma vara."""
+    try:
+        tabla = predictores.confiabilidad()
+        picks = predictores.leer()
+    except (OSError, KeyError, ValueError) as exc:
+        return f"No se pudo calcular: {_e(exc)}"
+    if not len(tabla):
+        return "Todavía no hay ninguna pick con resultado cargado."
+    # Por `origen` y no por nombre: el nombre lleva el proveedor adentro ("IA (Gemini)").
+    suyos = (set(picks[picks["origen"] == predictores.ORIGEN_IA]["predictor"])
+             if len(picks) else set())
+    filas = [f"{'🤖' if f.predictor in suyos else '  '} {f.predictor:18.18s} "
+             f"{f.aciertos:>3}/{f.total:<3} {f.acierto:>4.0%}  peso {f.peso:.2f}"
+             for f in tabla.itertuples()]
+    return ("🏆 <b>Tabla de predictores</b>\n"
+            "<i>Sobre las peleas ya resueltas y revisadas.</i>\n\n"
+            f"<pre>{_e(chr(10).join(filas))}</pre>\n"
+            "<i>El «peso» aplica un prior Beta(5, 5): una racha corta de 7 de 7 no cuenta "
+            "como una serie larga con el mismo porcentaje.</i>")
+
+
+def cmd_gate():
+    """Si el proyecto está autorizado a apostar, y qué falta para que lo esté."""
+    try:
+        e = gate.estado()
+    except (OSError, KeyError, ValueError) as exc:
+        return f"No se pudo leer el gate: {_e(exc)}"
+    p = [f"{'🟢' if e['autorizado'] else '🔴'} <b>Regla de apuestas: "
+         f"{'AUTORIZADA' if e['autorizado'] else 'CERRADA'}</b>",
+         "", _e(e.get("motivo", "sin motivo registrado"))]
+    if e.get("faltan"):
+        p += ["", f"Faltan <b>{e['faltan']}</b> apuestas preregistradas para llegar al "
+                  f"mínimo de {e['n_minimo']}."]
+    if e.get("version"):
+        p += ["", f"<i>Métrica {_e(e.get('metrica', '?'))} · regla {_e(e['version'])}, "
+                  f"escrita antes de mirar los resultados (config/gate.json).</i>"]
+    return "\n".join(p)
+
+
+def cmd_estado():
+    """Diagnóstico del bot.
+
+    Existe porque este proceso degrada en silencio: si `sincronizar()` no puede hablar con
+    git, el aviso va a stderr y queda enterrado en el journal del servicio. Acá se pregunta
+    y se contesta desde el chat.
+    """
+    p = ["🩺 <b>Estado del bot</b>", ""]
+
+    evento, en_curso = _evento_actual()
+    if not evento:
+        p.append("📅 Sin cartelera anunciada (o ESPN no respondió).")
+    else:
+        p.append(f"📅 <b>{_e(evento['evento'])}</b> · {_e(_cuando(evento))}")
+        p.append("🔴 En curso: narrando pelea por pelea." if en_curso else
+                 "⏳ Fuera de la ventana de narración; los avisos arrancan 4 h antes.")
+
+    ultima = ia_store.resumen()
+    p.append("")
+    if not ultima:
+        p.append("🧠 Todavía no corrió ningún análisis de IA.")
+    else:
+        tokens = int(ultima["prompt_tokens"]) + int(ultima["output_tokens"])
+        p += ["🧠 <b>Último análisis de IA</b>",
+              f"{_e(ultima['evento'])} · {ultima['peleas']} peleas "
+              f"({ultima['parejas']} parejas)",
+              f"{_e(ultima['modelo_ia'])} · corrida del {_e(ultima['run_day'])} · "
+              f"{tokens:,} tokens".replace(",", ".")]
+
+    p += ["", "📄 <b>Datos en disco</b>"]
+    p += [f"{_e(n)} — {_e(_estado_csv(rutas.DATOS / n))}"
+          for n in ("ia_consenso.csv", "picks.csv", "resultados.csv")]
+
+    # Las dos razones para no sincronizar son opuestas —una es correcta y la otra es una
+    # falla— y `sincronizar()` devuelve False en las dos. Distinguirlas es medio punto del
+    # comando: sin eso, "no sincronizó" no dice si hay algo que arreglar.
+    if rutas.MODELO.exists():
+        sync = "Esta máquina genera los picks, así que no sincroniza: traerlos de la rama " \
+               "remota pisaría el análisis nuevo con el de ayer."
+    else:
+        sync = ("Sincronizado recién con la rama remota." if sincronizar() else
+                "⚠️ Falló la sincronización con git; el motivo quedó en el journal del "
+                "servicio. Los picks pueden estar viejos.")
+    p += ["", f"🔄 {sync}", f"👥 {len(chats())} chat(s) autorizados."]
+    return "\n".join(p)
+
+
+def _estado_csv(ruta):
+    """-> "24 filas · 09/08 12:00", o por qué no se puede decir eso."""
+    try:
+        filas = sum(1 for _ in ruta.open(encoding="utf-8")) - 1
+    except OSError:
+        return "no está en esta máquina"
+    cuando = datetime.datetime.fromtimestamp(ruta.stat().st_mtime)
+    return f"{max(filas, 0)} filas · {cuando:%d/%m %H:%M}"
 
 
 def cmd_hoy():
@@ -551,15 +727,44 @@ def cmd_hoy():
     return "\n".join([*cabeza, *detalle])
 
 
-COMANDOS = {
-    "/start": lambda arg: AYUDA,
-    "/help": lambda arg: AYUDA,
-    "/ayuda": lambda arg: AYUDA,
-    "/cartelera": lambda arg: cmd_cartelera(),
-    "/pelea": cmd_pelea,
-    "/ia": lambda arg: cmd_ia(),
-    "/hoy": lambda arg: cmd_hoy(),
-}
+# (comando, que dice el menu de Telegram, handler). Una sola lista porque son tres los
+# consumidores del mismo dato —el dispatch, el /ayuda y `setMyCommands`— y mantener tres
+# copias a mano es la garantia de que alguna quede vieja. La descripcion la corta Telegram
+# a 256 caracteres.
+CATALOGO = [
+    ("cartelera", "La próxima cartelera con el pick de la IA en cada pelea",
+     lambda arg: cmd_cartelera()),
+    ("pelea", "El razonamiento completo de una pelea. Ej: /pelea 1", cmd_pelea),
+    ("hoy", "Cómo va la cartelera que se está peleando", lambda arg: cmd_hoy()),
+    ("ia", "Cómo le viene yendo a la IA contra el modelo y el mercado",
+     lambda arg: cmd_ia()),
+    ("predictores", "Tabla de aciertos: la IA contra los tipsters humanos",
+     lambda arg: cmd_predictores()),
+    ("gate", "Si la regla de apuestas está autorizada, y cuánto falta",
+     lambda arg: cmd_gate()),
+    ("estado", "Diagnóstico del bot: datos, último análisis, sincronización",
+     lambda arg: cmd_estado()),
+    ("ayuda", "Esta lista", lambda arg: AYUDA),
+]
+
+AYUDA = "\n".join(["👋 <b>Tipster UFC</b>", "",
+                   *(f"/{c} — {d}" for c, d, _ in CATALOGO), "",
+                   "Los avisos de acierto y fallo salen solos, pelea por pelea."])
+
+# `/start` y `/help` contestan pero no van al menu: Telegram ya los trata aparte y
+# repetirlos ahi le come dos lugares a la lista que el usuario ve al tipear "/".
+COMANDOS = {f"/{c}": h for c, _, h in CATALOGO} | {"/start": lambda arg: AYUDA,
+                                                   "/help": lambda arg: AYUDA}
+
+
+def registrar_menu():
+    """Puebla la lista que Telegram ofrece al tipear "/". Sin esto el menu esta vacio.
+
+    Es una llamada por arranque del daemon y no un archivo de configuracion en BotFather:
+    asi la lista sale del mismo `CATALOGO` que el dispatch y no se puede desincronizar.
+    """
+    return _api("setMyCommands",
+                commands=[{"command": c, "description": d} for c, d, _ in CATALOGO])
 
 
 def responder(texto):
@@ -721,6 +926,13 @@ def main(argv=None):
         print("Falta TELEGRAM_CHAT_IDS. Sin allowlist el bot no le habla a nadie.",
               file=sys.stderr)
         return 2
+
+    try:
+        registrar_menu()
+    except (requests.RequestException, ValueError) as exc:
+        # El menu es comodidad; sin el los comandos siguen andando. No vale la pena no
+        # arrancar el bot porque Telegram no contesto en este segundo.
+        print(f"AVISO: no se pudo registrar el menú de comandos: {exc}", file=sys.stderr)
 
     print(f"Tipster escuchando. {len(chats())} chat(s) autorizados.", flush=True)
     while True:

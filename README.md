@@ -281,7 +281,27 @@ también al método: decisión).
 
 Comandos: `/cartelera` (la próxima con el pick de la IA en cada pelea), `/pelea <n>` (el
 razonamiento completo: razones por fuente, factores no modelables, contraargumento,
-cuotas), `/ia` (la salida de `ufc.ia.evaluar`) y `/hoy` (cómo va la cartelera en curso).
+cuotas), `/hoy` (cómo va la cartelera en curso), `/ia` (cómo le viene yendo a la IA contra
+el modelo y el mercado), `/predictores` (la tabla de aciertos de `confiabilidad()`, con la
+IA marcada y medida con la misma vara que las personas), `/gate` (si la regla de apuestas
+está autorizada y cuánto falta, desde `gate.estado()`) y `/estado` (diagnóstico: cartelera
+en foco, última corrida de IA, frescura de los CSV y si la sincronización con git anduvo —
+que hasta ahora solo se sabía leyendo el journal del servicio).
+
+**Una sola lista de comandos.** `tipster.CATALOGO` es la fuente del dispatch, del texto de
+`/ayuda` y del menú que Telegram muestra al tipear `/` (`registrar_menu()` llama a
+`setMyCommands` cuando arranca el daemon). Agregar un comando es una fila; mantener tres
+copias a mano era la garantía de que alguna quedara vieja.
+
+**`/ia` no cuenta las parejas como picks.** El acierto se reporta sobre `veredicto =
+definido` únicamente, y las que la IA declaró parejas van en su propio renglón con su
+inclinación. Antes se sumaban las dos cosas bajo la etiqueta "acierto de la pick": una
+cartelera con 3 picks y 5 monedas al aire salía como "7 de 8", contradiciendo al renglón de
+abajo del mismo reporte y a `marcador()`, que sí las excluía. `evaluar.metricas()` es ahora
+el único que calcula el récord; `resumen()` (terminal) y el bot solo lo formatean. En el
+mismo pasaje se dejó de imprimir un IC95% cuando hay una sola cartelera: el bootstrap
+remuestrea clusters y con un cluster devuelve un intervalo de ancho cero, que se lee como
+certeza absoluta cuando es exactamente lo contrario.
 
 **De dónde salen los resultados en vivo.** De la misma API de ESPN que ya usaba
 `ufc.datos.cartelera` para las carteleras futuras: el endpoint devuelve las dos cosas y

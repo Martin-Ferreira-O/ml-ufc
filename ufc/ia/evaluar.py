@@ -76,7 +76,13 @@ def evaluar(prompt_v=dossier.VERSION):
     for col in ("p_a_ia", "p_a_modelo", "p_a_con_odds", "p_a_mercado",
                 "cuota_tomada", "ev_ia"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Direccional sobre TODA la cohorte, parejas incluidas: el log loss las necesita y el
+    # lado hacia el que se inclino existe aunque no sea una pick. Quien reporta un record
+    # tiene que partir por `es_pick`; ver `metricas`.
     df["acierto"] = ((df["p_a_ia"] > 0.5) == (df["y"] > 0.5)).astype(float)
+    # NaN cuenta como pick, igual que `tipster._abstuvo`: solo el "parejo" explicito se
+    # abstiene. Una fila sin veredicto es una fila vieja, no una abstencion.
+    df["es_pick"] = df["veredicto"] != "parejo"
     df["ll_ia"] = _log_loss(df["p_a_ia"], df["y"])
     df["ll_modelo"] = np.where(df["p_a_modelo"].notna(),
                                _log_loss(df["p_a_modelo"].fillna(0.5), df["y"]), np.nan)
@@ -124,57 +130,147 @@ def _clv(df):
     return salida
 
 
-def _linea(nombre, valores, clusters):
+def _delta(valores, clusters):
+    """-> (media, lo, hi, n). `lo`/`hi` en None cuando no hay IC95% posible.
+
+    `train.bootstrap` remuestrea CLUSTERS enteros —una cartelera es un cluster, porque las
+    peleas de una misma noche comparten arbitros, altitud y hasta el humor del juez— y con
+    una sola cartelera todos los resampleos salen identicos: devuelve un intervalo de ancho
+    cero. Eso no es un IC estrecho, es la ausencia de IC disfrazada de certeza absoluta, que
+    es la peor forma posible de reportarlo. Se prefiere decir que falta muestra.
+    """
     v = np.asarray(valores, float)
     ok = np.isfinite(v)
-    if ok.sum() < 2:
-        return f"  {nombre:22s} n={int(ok.sum())} — sin muestra suficiente"
-    media, lo, hi = train.bootstrap(v[ok], clusters=np.asarray(clusters)[ok])
-    return f"  {nombre:22s} {media:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  n={int(ok.sum())}"
+    c = np.asarray(clusters)[ok]
+    media = float(v[ok].mean()) if ok.any() else float("nan")
+    if ok.sum() < 2 or len(np.unique(c)) < 2:
+        return media, None, None, int(ok.sum())
+    media, lo, hi = train.bootstrap(v[ok], clusters=c)
+    return float(media), float(lo), float(hi), int(ok.sum())
 
 
-def resumen(df=None):
-    """-> texto con acierto, log loss comparado y CLV. El formato de `devig.main`."""
+def _record_total():
+    """-> (aciertos, total) de la IA en `picks.csv`, todas las versiones del prompt.
+
+    Es otro numero que el de la cohorte, y por eso se muestra aparte en vez de reemplazarlo:
+    incluye las peleas que analizo la v1, que veia el modelo, el mercado y las picks humanas.
+    Como historial vale —son picks que se hicieron y se ganaron— pero como medida de ESTA
+    version del prompt no, y mezclarlos da el rendimiento de un predictor que no existe.
+
+    Filtra por `origen` y no por el nombre del predictor: el nombre lleva el proveedor
+    adentro ("IA (Gemini)") y cambia el dia que se cambie de modelo.
+    """
+    try:
+        picks = predictores.leer()
+        if not len(picks):
+            return 0, 0
+        suyos = set(picks[picks["origen"] == predictores.ORIGEN_IA]["predictor"])
+        g = predictores.aciertos()
+        g = g[g["predictor"].isin(suyos)]
+        return int(g["aciertos"].sum()), int(g["total"].sum())
+    except (OSError, KeyError, ValueError):
+        return 0, 0
+
+
+def metricas(df=None):
+    """-> dict con todo lo que hay que decir de la cohorte, calculado una sola vez.
+
+    Existe porque el record se calculaba en dos lados con criterios distintos: `resumen()`
+    contaba las peleas que la IA declaro parejas como si fueran picks (de ahi el "7 de 8"
+    cuando habia hecho 3 picks) y `tipster.marcador()` las excluia. Un dict, dos
+    formateadores —terminal y Telegram— y los dos numeros no se pueden volver a separar.
+
+    Vacio si no hay cohorte. Los formateadores tratan `{}` como "todavia no hay nada".
+    """
     df = evaluar() if df is None else df
     if not len(df):
-        return "Todavia no hay ninguna pelea analizada por IA con resultado cargado."
-
+        return {}
+    picks, parejas = df[df["es_pick"]], df[~df["es_pick"]]
     clusters = df["evento"].to_numpy()
-    lineas = [f"Cohorte IA (prompt v{dossier.VERSION}, ciego al mercado): {len(df)} "
-              f"peleas resueltas de {df['evento'].nunique()} carteleras.", ""]
-    lineas.append(f"  acierto de la pick     {df['acierto'].mean():.1%} "
-                  f"({int(df['acierto'].sum())}/{len(df)})")
 
-    lineas += ["", "log loss (mas bajo es mejor):"]
+    ll = {}
     for nombre, col in (("IA", "ll_ia"), ("modelo", "ll_modelo"),
                         ("mercado", "ll_mercado")):
         v = df[col].to_numpy(float)
         ok = np.isfinite(v)
-        lineas.append(f"  {nombre:22s} {v[ok].mean():.4f}  n={int(ok.sum())}"
-                      if ok.any() else f"  {nombre:22s} sin muestra")
+        ll[nombre] = (float(v[ok].mean()), int(ok.sum())) if ok.any() else (None, 0)
+
+    deltas = {nombre: _delta(df[col] - df["ll_ia"], clusters)
+              for nombre, col in (("modelo", "ll_modelo"), ("mercado", "ll_mercado"))}
+
+    clv = None
+    con_precio = df[df["ev_al_cierre"].notna()]
+    if len(con_precio):
+        media, lo, hi, n = _delta(con_precio["ev_al_cierre"],
+                                  con_precio["evento"].to_numpy())
+        finito = con_precio["ev_al_cierre"].to_numpy(float)
+        finito = finito[np.isfinite(finito)]
+        clv = {"media": media, "lo": lo, "hi": hi, "n": n,
+               "faltan": (apuesta.n_para_detectar(
+                   0.02, float(np.std(finito, ddof=1)) or 0.04)
+                   if len(finito) >= 2 else None)}
+
+    return {"prompt_v": dossier.VERSION,
+            "n": len(df), "carteleras": int(df["evento"].nunique()),
+            "picks_n": len(picks), "picks_ok": int(picks["acierto"].sum()),
+            "parejas_n": len(parejas), "parejas_ok": int(parejas["acierto"].sum()),
+            "ll": ll, "deltas": deltas, "clv": clv, "total_picks": _record_total()}
+
+
+def marca(ok, n):
+    """-> "3 de 4 (75%)", o "sin muestra" cuando no hay nada que promediar."""
+    return f"{ok} de {n} ({ok / n:.0%})" if n else "sin muestra"
+
+
+def plural(n, singular, plural_=None):
+    return f"{n} {singular if n == 1 else (plural_ or singular + 's')}"
+
+
+def _linea(nombre, delta):
+    media, lo, hi, n = delta
+    if lo is None:
+        return (f"  {nombre:22s} {media:+.4f}  n={n} — sin IC95%: hace falta mas de una "
+                f"cartelera")
+    return f"  {nombre:22s} {media:+.4f}  IC95% [{lo:+.4f}, {hi:+.4f}]  n={n}"
+
+
+def resumen(df=None):
+    """-> texto con acierto, log loss comparado y CLV. El formato de `devig.main`."""
+    m = metricas(df)
+    if not m:
+        return "Todavia no hay ninguna pelea analizada por IA con resultado cargado."
+
+    lineas = [f"Cohorte IA (prompt {m['prompt_v']}, ciego al mercado): {m['n']} peleas "
+              f"resueltas de {plural(m['carteleras'], 'cartelera')}.", ""]
+    lineas.append(f"  acierto de sus picks   {marca(m['picks_ok'], m['picks_n'])}")
+    lineas.append(f"  parejas declaradas     {m['parejas_n']} de {m['n']} — no son pick; "
+                  f"su inclinacion acerto {marca(m['parejas_ok'], m['parejas_n'])}")
+
+    lineas += ["", "log loss (mas bajo es mejor), sobre toda la cohorte:"]
+    for nombre, (media, n) in m["ll"].items():
+        lineas.append(f"  {nombre:22s} {media:.4f}  n={n}" if media is not None
+                      else f"  {nombre:22s} sin muestra")
 
     lineas += ["", "delta pareado contra la IA (negativo = el otro es mejor que la IA):"]
-    for nombre, col in (("modelo - IA", "ll_modelo"), ("mercado - IA", "ll_mercado")):
-        pareado = df[col] - df["ll_ia"]
-        lineas.append(_linea(nombre, pareado, clusters))
+    lineas += [_linea(f"{nombre} - IA", d) for nombre, d in m["deltas"].items()]
 
-    parejas = int((df["veredicto"] == "parejo").sum())
-    lineas += ["", f"peleas que la IA declaro parejas: {parejas} de {len(df)} "
-                   "(no se registran como pick)"]
-
-    con_precio = df[df["ev_al_cierre"].notna()]
     lineas += ["", "CLV de la pick contra la linea de cierre — la IA nunca vio el precio,",
                "asi que esto mide si su lectura deportiva le gana al mercado:"]
-    if len(con_precio):
-        clv = con_precio["ev_al_cierre"]
-        lineas.append(_linea("EV al cierre", clv, con_precio["evento"].to_numpy()))
-        finito = clv[np.isfinite(clv)]
-        if len(finito) >= 2:
-            falta = apuesta.n_para_detectar(0.02, float(np.std(finito, ddof=1)) or 0.04)
-            lineas.append(f"  para concluir un CLV de +2% harian falta ~{falta} peleas "
-                          f"(hay {len(finito)} con cierre)")
+    if m["clv"]:
+        clv = m["clv"]
+        lineas.append(_linea("EV al cierre",
+                             (clv["media"], clv["lo"], clv["hi"], clv["n"])))
+        if clv["faltan"]:
+            lineas.append(f"  para concluir un CLV de +2% harian falta ~{clv['faltan']} "
+                          f"peleas (hay {clv['n']} con cierre)")
     else:
         lineas.append("  sin ninguna pelea con precio de apertura y de cierre todavia")
+
+    ok, total = m["total_picks"]
+    if total:
+        lineas += ["", f"Historial completo en picks.csv: {marca(ok, total)}.",
+                   "Incluye las peleas de versiones anteriores del prompt, que veian el",
+                   "modelo y el mercado: son otro predictor, y por eso no entran arriba."]
 
     lineas += ["",
                "La cohorte del gate (`data/ledger.csv`) no se toca: esto se mide aparte."]
