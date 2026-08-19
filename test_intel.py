@@ -2,6 +2,7 @@
 
 import datetime
 import json
+import os
 import pathlib
 import shutil
 import tempfile
@@ -13,7 +14,12 @@ from unittest import mock
 
 from streamlit.testing.v1 import AppTest
 
-from ufc.intel import analyzer, bot, identities, remote, sources, store
+# El grifo de `reintentos.espaciar` regula la API de verdad; aca no hay API que regular y
+# esperar 6s por peleador convertiria la suite offline en algo que nadie corre. El
+# espaciado tiene su propio check en `test_app.check_ia_grifo`.
+os.environ.setdefault("UFC_IA_RPM", "100000")
+
+from ufc.intel import analyzer, bot, identities, remote, sources, store  # noqa: E402
 
 
 RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel>

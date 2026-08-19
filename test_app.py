@@ -705,6 +705,44 @@ def check_cartel():
         rutas.CARTELES, fotos.ruta, fotos.bandera = carteles, ruta_real, bandera_real
 
 
+def check_comparativa():
+    """La barra de cada rubro se inclina hacia el que esta MEJOR, no hacia el numero mayor.
+
+    Es la unica logica no trivial del bloque de estadisticas comparadas: sin esto, el que
+    recibe cinco golpes por minuto aparece ganandole al que recibe dos.
+    """
+    import pandas as pd
+
+    from ufc.ui import comunes
+
+    # Percentiles ya calculados: "uno" arriba, "dos" abajo, en los tres rubros.
+    pct = pd.DataFrame({"slpm": [.9, .2], "sapm": [.9, .2], "days_since_last": [.9, .2]},
+                       index=["uno", "dos"])
+
+    def fila(col):
+        return comunes._fila_comparativa(
+            col, col, "{:.2f}", ({col: 5.0}, {col: 2.0}),
+            [comunes._rango(pct, clave, col) for clave in ("uno", "dos")])
+
+    # conectar mas es mejor: la barra se va para el lado de "uno"
+    _, _, _, izq, mejor = fila("slpm")
+    assert (mejor, izq > 50) == ("a", True), (mejor, izq)
+    # RECIBIR mas es peor: mismo percentil, barra al reves
+    _, _, _, izq, mejor = fila("sapm")
+    assert (mejor, izq < 50) == ("b", True), (mejor, izq)
+    # el descanso reparte la barra pero no corona a nadie: no esta medido si es oxido
+    _, _, _, izq, mejor = fila("days_since_last")
+    assert mejor is None and izq is not None, (mejor, izq)
+
+    # sin dato no hay barra y el valor sale como "s/d", no como 0
+    assert comunes._fila_comparativa("elo", "Elo", "{:.0f}", (None, None),
+                                     (None, None)) == ("Elo", "s/d", "s/d", None, None)
+    # y una ventaja aplastante igual deja ver que del otro lado hay alguien
+    _, _, _, izq, _ = comunes._fila_comparativa("elo", "Elo", "{:.0f}",
+                                                ({"elo": 1700}, {"elo": 1400}), (1.0, .001))
+    assert izq == 97, izq
+
+
 def check_cartelera():
     """Parseo de la cartelera y prediccion de peleas que pueden no ser predecibles."""
     import pathlib
@@ -881,6 +919,13 @@ def check_app():
     sin_foto = CARTELERA["events"][0]["competitions"][-1]["competitors"][1]
     sin_foto = sin_foto["athlete"]["displayName"]
     assert f'aria-label="{sin_foto}"' in marca, f"{sin_foto} se quedo sin monograma"
+    # Y el mismo modal trae la comparativa rubro por rubro y los ultimos rivales con su
+    # Elo. Las dos salen por st.html adentro de un expander, o sea que si alguien anida un
+    # expander de mas desaparecen sin romper nada: por eso se afirman por contenido.
+    import re
+    assert f'aria-label="Elo: {A} ' in marca, "el modal no dibujo la comparativa de rubros"
+    assert "Defensa de derribo" in marca, "la comparativa se quedo sin el grupo Lucha"
+    assert re.search(r"Elo (\d{4}|s/d)<", marca), "los ultimos rivales salieron sin Elo"
 
     # Abrir la carga historica renderiza un selector de dos lados por pelea y sus
     # detalles opcionales; esto cubre APIs que la comparativa vacia no ejecuta.
@@ -960,6 +1005,23 @@ def check_app():
     cart.run()
     consensos = [c.value for c in cart.caption if c.value.startswith("Consenso")]
     assert len(consensos) == 1 and "4 casas" in consensos[0], consensos
+
+    # Resumen comparte el mismo selector: si la cartelera mas cercana es un Contender
+    # Series, el panel tiene que poder saltar a la del sabado sin irse de la pagina.
+    res = AppTest.from_function(_render_page,
+                                args=("ufc.ui.tab_resumen", (modelo, estado)),
+                                default_timeout=120).run()
+    assert not res.exception, [e.value for e in res.exception]
+    assert len(res.selectbox) == 1 and res.selectbox[0].options[0].startswith("Próximo · "), \
+        [(s.value, s.options) for s in res.selectbox]
+    assert any("Próximo evento" in m.value for m in res.markdown), \
+        [m.value for m in res.markdown]
+    res.selectbox[0].select_index(1).run()
+    assert not res.exception, [e.value for e in res.exception]
+    assert "UFC Prueba 2" in [h.value for h in res.header], [h.value for h in res.header]
+    # Y el badge deja de mentir: la elegida ya no es la proxima.
+    assert any("Cartelera elegida" in m.value for m in res.markdown), \
+        [m.value for m in res.markdown]
 
 
 def check_calibra():
@@ -1455,6 +1517,43 @@ def check_ia_validar_incoherente():
     assert v["p_a"] == 0.4
 
 
+def check_ia_grifo():
+    """El grifo espacia las llamadas: sin esto la cartelera entera se come un 429."""
+    import os
+    from unittest import mock
+
+    from ufc.intel import reintentos
+
+    reloj = [1000.0]
+    dormido = []
+
+    def correr(rpm=None):
+        entorno = {"UFC_IA_RPM": rpm} if rpm else {}
+        with mock.patch.dict(os.environ, entorno, clear=False):
+            if not rpm:
+                os.environ.pop("UFC_IA_RPM", None)
+            reintentos.espaciar(sleep=dormido.append, reloj=lambda: reloj[0])
+
+    # la primera pasa sin esperar: el grifo frena la rafaga, no la primera llamada
+    reintentos._ultima = 0.0
+    correr()
+    assert dormido == [], dormido
+
+    # la segunda, pegada a la primera, espera los 6s que salen de 10 rpm
+    correr()
+    assert dormido == [6.0], dormido
+
+    # y si ya paso mas tiempo que el hueco, no espera nada
+    reloj[0] += 100
+    correr()
+    assert dormido == [6.0], dormido
+
+    # el limite se puede subir cuando la cuenta lo aguanta
+    dormido.clear()
+    correr(rpm="60")
+    assert dormido == [1.0], dormido
+
+
 def check_ia_abstencion():
     """La IA puede decir "esta pareja", y decirlo tiene consecuencias."""
     from ufc.ia import analista
@@ -1495,6 +1594,51 @@ def check_ia_ev_python():
     # sin ninguna cuota publicada no hay EV que calcular, y eso no rompe nada
     vacio = analista.ev_contra_mercado(v, _ia_dossier(cuotas=None, consenso=None))
     assert vacio["ev"] is None and vacio["cumple_regla"] is False, vacio
+
+
+def _render_ia_apuesta(filas):
+    """Wrapper autosuficiente para AppTest.from_function."""
+    from ufc.ui import comunes
+
+    pelea = {"a": "Uno Ganador", "b": "Dos Perdedor"}
+    for fila in filas:
+        comunes.ia_apuesta(fila, pelea)
+
+
+def check_ia_apuesta():
+    """La linea de "apostar o no" del Resumen sale de `cumple_regla`, no de una regla nueva."""
+    from streamlit.testing.v1 import AppTest
+
+    filas = [
+        {"pick": "a", "veredicto": "definido", "confianza": "alta", "ev_ia": 0.65,
+         "cuota_tomada": 2.3, "casa": "BetOnline.ag", "cumple_regla": True},
+        {"pick": "b", "veredicto": "parejo", "confianza": "media", "ev_ia": None,
+         "cumple_regla": False},
+        {"pick": "b", "veredicto": "definido", "confianza": "media", "ev_ia": -0.19,
+         "cuota_tomada": 1.25, "casa": "Coolbet", "cumple_regla": False},
+        {"pick": "a", "veredicto": "definido", "confianza": "baja", "ev_ia": None,
+         "cumple_regla": False},
+        None,   # cartelera sin analizar: la linea tiene que decirlo, no desaparecer
+    ]
+    at = AppTest.from_function(_render_ia_apuesta, args=(filas,), default_timeout=60).run()
+    assert not at.exception, [e.value for e in at.exception]
+
+    # Lo unico en verde es la que paso el piso de EV, con el precio y la casa contra los
+    # que se calculo: sin eso la recomendacion no se puede ejecutar.
+    assert len(at.success) == 1, [s.value for s in at.success]
+    verde = at.success[0].value
+    assert "Apostar a Uno Ganador" in verde and "2.30" in verde and "BetOnline.ag" in verde, \
+        verde
+
+    lineas = [c.value for c in at.caption]
+    assert len(lineas) == 4, lineas
+    assert "pareja" in lineas[0] and "Dos Perdedor" in lineas[0], lineas[0]
+    # Con EV negativo la IA igual eligio a alguien. Las dos mitades tienen que estar en la
+    # misma linea, o "La IA elige a X" solo se lee como una recomendacion de apostar.
+    assert "elige a Dos Perdedor" in lineas[1] and "-19.0%" in lineas[1] \
+        and "no llega al piso" in lineas[1], lineas[1]
+    assert "Sin cuota" in lineas[2], lineas[2]
+    assert "Sin análisis de IA" in lineas[3], lineas[3]
 
 
 def check_ia_store():
@@ -1986,12 +2130,15 @@ if __name__ == "__main__":
                   check_confianza, check_apuesta, check_integridad_metodologica,
                   check_oddsapi, check_homonimo, check_metodo, check_archivo,
                   check_ledger, check_calibra, check_backtest, check_predictores,
-                  check_apuestas, check_cartelera, check_cartel, check_devig,
+                  check_apuestas, check_cartelera, check_cartel, check_comparativa,
+                  check_devig,
                   check_staking,
                   check_pool, check_gate,
                   check_ia_dossier, check_ia_prompt_ciego, check_ia_dossier_sin_cuota,
                   check_ia_record, check_ia_historial, check_ia_validar,
-                  check_ia_validar_incoherente, check_ia_abstencion, check_ia_ev_python,
+                  check_ia_validar_incoherente, check_ia_grifo,
+                  check_ia_abstencion, check_ia_ev_python,
+                  check_ia_apuesta,
                   check_ia_store, check_ia_predictores, check_ia_evaluar,
                   check_resultados_espn, check_tipster_mensajes,
                   check_tipster_allowlist,

@@ -28,7 +28,7 @@ def render(modelo, estado, pagina_cartelera=None):
         chips.append((f"{_clp(resumen['pendiente'])} en juego", "violet",
                       ":material/hourglass_top:"))
     comunes.encabezado(
-        "Resumen", "La próxima cartelera, las señales revisadas y tu rendimiento real "
+        "Resumen", "La cartelera que elijas, las señales revisadas y tu rendimiento real "
                    "en un solo lugar.", seccion="Panel", chips=chips)
 
     with st.container(horizontal=True):
@@ -52,12 +52,20 @@ def render(modelo, estado, pagina_cartelera=None):
                    "sin responder; probá de nuevo en un rato.",
                    icon=":material/cloud_off:")
     else:
-        evento = eventos[0]
         with st.container(border=True):
+            # El selector arriba de todo: la cartelera mas cercana puede ser un Contender
+            # Series sin peleadores UFC, y ahi el panel entero no dice nada.
+            evento = comunes.selector_cartelera(eventos)
+            # `min` devuelve el primer minimo, igual que el `sorted(...)[0]` del selector.
+            proximo = evento is min(eventos,
+                                    key=lambda e: e.get("fecha") or "9999-12-31")
             with st.container(horizontal=True, horizontal_alignment="distribute",
                               vertical_alignment="center"):
-                st.badge("Próximo evento", icon=":material/local_fire_department:",
-                         color="orange")
+                if proximo:
+                    st.badge("Próximo evento", icon=":material/local_fire_department:",
+                             color="orange")
+                else:
+                    st.badge("Cartelera elegida", icon=":material/event:", color="blue")
                 if falta := comunes.cuenta_regresiva(evento["fecha"]):
                     st.badge(falta, icon=":material/schedule:", color="blue")
             st.header(evento["evento"])
@@ -66,28 +74,36 @@ def render(modelo, estado, pagina_cartelera=None):
 
             tabla = comunes.cuotas_betano()
             cuotas = [betano.buscar(tabla, p["a"], p["b"]) for p in evento["peleas"]]
-            preds = [cartelera.predecir(p, modelo, estado, c)
+            preds = [cartelera.predecir(p, modelo, estado, c, evento["fecha"])
                      for p, c in zip(evento["peleas"], cuotas)]
             rank = predictores.ranking(evento["peleas"],
                                        predictores.leer(evento["evento"]), preds, cuotas)
-            fuertes = rank[rank["fuerte"]] if len(rank) else rank
-            if len(fuertes):
-                st.caption(f"**{len(fuertes)} señales fuertes** — apoyo humano de 66.7% "
-                           "o más, confirmado por el modelo o por el mercado.")
-                st.dataframe(fuertes[["pelea", "seleccion", "apoyo", "votos", "predictores",
-                                      "modelo_confirma", "mercado_confirma", "cuota"]],
-                             hide_index=True, column_config={
-                                 "pelea": st.column_config.TextColumn("Pelea", pinned=True),
-                                 "seleccion": st.column_config.TextColumn("Selección"),
-                                 "apoyo": st.column_config.ProgressColumn(
-                                     "Apoyo humano", format="percent",
-                                     min_value=0, max_value=1),
-                                 "votos": st.column_config.NumberColumn("Votos"),
-                                 "predictores": st.column_config.NumberColumn("Cargados"),
-                                 "modelo_confirma": st.column_config.CheckboxColumn("Modelo"),
-                                 "mercado_confirma": st.column_config.CheckboxColumn("Mercado"),
-                                 "cuota": st.column_config.NumberColumn("Cuota", format="%.2f"),
-                             })
+            veredictos = comunes.ia_veredictos(evento["evento"])
+            # Una pelea que la IA da para apostar entra al panel aunque no sea señal
+            # fuerte: el apoyo humano no es requisito para que el precio pague.
+            apuesta = [bool(veredictos.get((a, b), {}).get("cumple_regla"))
+                       for a, b in zip(rank.get("a", []), rank.get("b", []))]
+            mostrar = (rank[rank["fuerte"] | pd.Series(apuesta, index=rank.index)]
+                       if len(rank) else rank)
+            if len(mostrar):
+                fuertes, n_ap = int(mostrar["fuerte"].sum()), sum(apuesta)
+                st.caption(
+                    f"**{fuertes} señales fuertes** — apoyo humano de 66.7% o más, "
+                    "confirmado por el modelo, el mercado o la IA." +
+                    (f" **{n_ap} para apostar** según la IA." if n_ap else ""))
+                for fila in mostrar.itertuples():
+                    with st.container(border=True):
+                        with st.container(horizontal=True,
+                                          horizontal_alignment="distribute",
+                                          vertical_alignment="center"):
+                            st.subheader(fila.pelea)
+                            st.badge(fila.senal,
+                                     color="green" if fila.fuerte else "gray",
+                                     icon=":material/verified:" if fila.fuerte
+                                     else ":material/how_to_vote:")
+                        comunes.picks_pelea(fila, detalle=False)
+                        comunes.ia_apuesta(veredictos.get((fila.a, fila.b)),
+                                           evento["peleas"][fila.orden])
             else:
                 st.info("Todavía no hay señales fuertes revisadas para este evento.",
                         icon=":material/pending_actions:")

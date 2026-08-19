@@ -14,10 +14,11 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from ufc import nombres
 from ufc.datos import betano, cartelera, fotos, oddsapi
-from ufc.ia import analista, store as ia_store
+from ufc.ia import analista, dossier, store as ia_store
 from ufc.intel import identities, store
-from ufc.modelo import predict
+from ufc.modelo import features, predict
 from ufc.registro import predictores
 
 # Los nombres internos de las features no le dicen nada a nadie, y el punto de mostrar
@@ -163,6 +164,59 @@ def carteleras():
         return cartelera.proximas()
     except requests.RequestException:
         return []  # el warning de la pestania ya explica que ESPN no respondio
+
+
+EVENTO_ACTIVO = "cartelera_evento_activo"
+_MESES = ("ene", "feb", "mar", "abr", "may", "jun",
+          "jul", "ago", "sept", "oct", "nov", "dic")
+
+
+def clave_evento(evento):
+    """Identidad estable entre reruns y refrescos de la lista de ESPN."""
+    return f"{evento['fecha']}|{evento['evento']}"
+
+
+def fecha_evento(fecha):
+    """Fecha ISO de ESPN en una etiqueta corta e independiente del locale del host."""
+    try:
+        d = datetime.date.fromisoformat(str(fecha)[:10])
+    except ValueError:
+        return str(fecha)
+    return f"{d.day} {_MESES[d.month - 1]} {d.year}"
+
+
+def meta_evento(evento):
+    n = len(evento["peleas"])
+    return f"{fecha_evento(evento['fecha'])} · {n} {'pelea' if n == 1 else 'peleas'}"
+
+
+def selector_cartelera(eventos):
+    """Selector de cartelera compartido; devuelve el evento elegido.
+
+    Vive aca porque Resumen y Cartelera tienen que coincidir: la clave de estado es la
+    misma, asi que elegir la cartelera del sabado en una la deja elegida en la otra. Sin
+    esto, Resumen mostraba `eventos[0]` y un Contender Series tapaba el evento que
+    interesa.
+
+    ponytail: si la pagina que dibuja este selector deja de renderizarlo un run entero
+    (Cartelera en vista "anteriores"), Streamlit puede descartar el estado del widget y
+    la seleccion cae al evento mas cercano — el mismo fallback que ya existia. Si molesta,
+    el arreglo es un keep-alive `st.session_state[k] = st.session_state[k]`.
+    """
+    eventos = sorted(eventos, key=lambda e: e.get("fecha") or "9999-12-31")
+    por_clave = {clave_evento(e): e for e in eventos}
+    if st.session_state.get(EVENTO_ACTIVO) not in por_clave:
+        st.session_state[EVENTO_ACTIVO] = clave_evento(eventos[0])
+    proximo = clave_evento(eventos[0])
+
+    def etiqueta(clave):
+        e = por_clave[clave]
+        prefijo = "Próximo · " if clave == proximo else ""
+        return f"{prefijo}{e['evento']} · {meta_evento(e)}"
+
+    st.selectbox("Cartelera", list(por_clave), key=EVENTO_ACTIVO, format_func=etiqueta,
+                 help="Las carteleras anunciadas, de la más cercana a la más lejana.")
+    return por_clave[st.session_state[EVENTO_ACTIVO]]
 
 
 # El TTL es tambien el rate limit contra Betano: una request cada media hora.
@@ -367,6 +421,210 @@ def resultado(a, b, r, cuotas, fotos=None):
                        "seguimiento experimental.", icon=":material/do_not_disturb_on:")
 
 
+@st.cache_resource
+def percentiles(_estado):
+    """-> DataFrame de percentiles 0-1 por stat, sobre el roster entero.
+
+    La barra comparativa necesita una escala comun. El reparto crudo `a/(a+b)` sirve para
+    los golpes por minuto (0 a 18) pero no para el Elo, donde los 2726 peleadores caen
+    entre 1415 y 1775 y la barra quedaria clavada al medio en todas las peleas. El
+    percentil pone cada rubro en la misma escala y ademas aguanta los outliers, que aca
+    son reales: `sub_per15` llega a 58 por una sola pelea corta con muchos intentos.
+
+    `age` y `days_since_last` no son columnas del CSV —se recalculan a la fecha del
+    evento—, pero su ORDEN no depende de la fecha: todos envejecen y descansan lo mismo.
+    Asi que rankear `dob` y `last_date` al reves da el percentil correcto para cualquier
+    fecha, y esto se puede cachear una sola vez.
+    """
+    cols = [c for c in features.FEATURES if c in _estado.columns]
+    pct = _estado[cols].rank(pct=True)
+    pct["age"] = _estado["dob"].rank(pct=True, ascending=False)
+    pct["days_since_last"] = _estado["last_date"].rank(pct=True, ascending=False)
+    return pct
+
+
+_VALOR = "font:700 16px 'Barlow Condensed',sans-serif;line-height:1;white-space:nowrap"
+_RUBRO = "font:400 11px Inter,sans-serif;color:#8A94A6;text-align:center;margin-bottom:5px"
+_PISTA = "display:flex;gap:3px;height:8px;border-radius:999px;overflow:hidden"
+
+
+def barras(a, b, filas):
+    """Un rubro por fila: el valor de cada esquina y una barra partida entre las dos.
+
+    `filas` = [(etiqueta, texto_a, texto_b, izq, mejor)] con `izq` en 0-100 —o None
+    cuando falta el dato— y `mejor` en "a"/"b"/None. Es presentacion pura: no sabe que es
+    un percentil ni en que rubros el numero chico es la buena noticia, eso lo resuelve
+    `comparativa`.
+
+    Va todo en un solo `st.html`, igual que `enfrentamiento` y por el mismo motivo: veinte
+    rubros serian sesenta elementos de Streamlit para dibujar lo que es una tabla.
+    """
+    trozos = []
+    for etiqueta, texto_a, texto_b, izq, mejor in filas:
+        # El perdedor va apagado, no gris: el color de su esquina es lo que lo identifica
+        # en toda la app, y cambiarselo lo desconecta de su foto y de su cuota.
+        opaco = {"a": (1, .4), "b": (.4, 1)}.get(mejor, (1, 1))
+        if izq is None:
+            pista = f'<div style="{_PISTA};background:#222A38"></div>'
+        else:
+            pista = (f'<div style="{_PISTA}">'
+                     f'<div style="width:{izq}%;background:{COLOR_A};opacity:{opaco[0]};'
+                     f'border-radius:999px"></div>'
+                     f'<div style="width:{100 - izq}%;background:{COLOR_B};'
+                     f'opacity:{opaco[1]};border-radius:999px"></div></div>')
+        gana = {"a": f", mejor {a}", "b": f", mejor {b}"}.get(mejor, "")
+        trozos.append(
+            f'<div role="img" aria-label="{html.escape(etiqueta)}: '
+            f'{html.escape(a)} {html.escape(texto_a)}, {html.escape(b)} '
+            f'{html.escape(texto_b)}{html.escape(gana)}" '
+            f'style="display:grid;grid-template-columns:64px 1fr 64px;gap:12px;'
+            f'align-items:center;margin:9px 0">'
+            f'<span style="{_VALOR};color:{COLOR_A};opacity:{opaco[0]}">'
+            f'{html.escape(texto_a)}</span>'
+            f'<div><div style="{_RUBRO}">{html.escape(etiqueta)}</div>{pista}</div>'
+            f'<span style="{_VALOR};color:{COLOR_B};opacity:{opaco[1]};text-align:right">'
+            f'{html.escape(texto_b)}</span></div>')
+    st.html("".join(trozos))
+
+
+# `dossier.GRUPOS` escribe sus etiquetas sin tildes porque van al prompt de la IA, y
+# cambiarlas ahi cambiaria la huella de todos los dossiers ya analizados (o sea, otra
+# corrida completa contra la API). Se acentuan al mostrarlas y nada mas. Si alguien
+# reescribe una etiqueta esto deja de aplicar solo, que es lo peor que puede pasar.
+_TILDES = {"Record": "Récord", "Fisico": "Físico", "Precision": "Precisión",
+           "sumision": "sumisión", "Dias": "Días", "ultima": "última"}
+
+
+def _acentuar(texto):
+    for pelado, con_tilde in _TILDES.items():
+        texto = texto.replace(pelado, con_tilde)
+    return texto
+
+
+def _rango(pct, clave, col):
+    """-> percentil 0-1 de ese peleador en ese rubro, ya dado vuelta si menos es mejor."""
+    if clave not in pct.index or col not in pct.columns:
+        return None
+    valor = pct.loc[clave, col]
+    if pd.isna(valor):
+        return None
+    return 1 - float(valor) if col in dossier.MENOR_MEJOR else float(valor)
+
+
+def _fila_comparativa(col, etiqueta, formato, perfiles, rangos):
+    (perfil_a, perfil_b), (ra, rb) = perfiles, rangos
+    texto_a = dossier.fmt((perfil_a or {}).get(col), formato)
+    texto_b = dossier.fmt((perfil_b or {}).get(col), formato)
+    etiqueta = _acentuar(etiqueta)
+    if ra is None or rb is None or not (ra + rb):
+        return etiqueta, texto_a, texto_b, None, None
+    # El mismo clamp que `enfrentamiento`: una ventaja aplastante igual tiene que dejar
+    # ver que del otro lado hay alguien.
+    izq = min(max(round(ra / (ra + rb) * 100), 3), 97)
+    mejor = None if col in dossier.NEUTRO or ra == rb else ("a" if ra > rb else "b")
+    return etiqueta, texto_a, texto_b, izq, mejor
+
+
+def comparativa(a, b, estado, fecha):
+    """Las 26 stats del modelo, rubro por rubro, con la barra inclinada hacia el mejor.
+
+    Reutiliza `dossier.GRUPOS` en vez de una lista propia: es la misma tabla que ve la IA,
+    tiene un assert que la mantiene sincronizada con `features.FEATURES`, y una segunda
+    lista aca se desincronizaria en silencio la primera vez que entre una feature nueva.
+    """
+    perfiles = (dossier.perfil(a, estado, fecha), dossier.perfil(b, estado, fecha))
+    if not any(perfiles):
+        st.caption("Ninguno de los dos tiene historial en UFC: no hay nada que comparar.")
+        return
+    pct = percentiles(estado)
+    claves = (nombres.normalizar(a), nombres.normalizar(b))
+    for grupo, filas in dossier.GRUPOS:
+        if grupo in dossier.SIN_COMPARAR:
+            continue
+        st.markdown(f"**{_acentuar(grupo)}**")
+        barras(a, b, [_fila_comparativa(col, etiqueta, formato, perfiles,
+                                        [_rango(pct, c, col) for c in claves])
+                      for col, etiqueta, formato in filas])
+    st.caption("La barra reparte el **percentil** de cada uno contra los "
+               f"{len(pct)} peleadores del dataset, no los valores crudos: sin eso el Elo "
+               "—que va de 1415 a 1775— daría siempre mitad y mitad. Donde menos es mejor "
+               "(golpes recibidos, knockdowns recibidos, veces que lo terminaron) la barra "
+               "se inclina igual hacia el que está mejor.")
+
+
+_RESULTADO = {True: ("V", "#34D399"), False: ("D", "#F43F5E")}
+# Los mismos metodos, con acento. `dossier.METODO_LARGO` los escribe pelados porque
+# alimenta el prompt de la IA, y tocarlo cambiaria la huella de los dossiers ya guardados.
+_VIA = {"ko": "KO/TKO", "sub": "sumisión", "dec": "decisión"}
+
+
+def ultimas_peleas(resumen, n=5):
+    """Las ultimas n peleas: rival, Elo actual del rival, resultado, via y fecha."""
+    trozos = []
+    for u in resumen["ultimas"][:n]:
+        marca, color = _RESULTADO[u["gano"]]
+        via = _VIA.get(u["metodo"], u["metodo"] or "s/d")
+        if u["round"]:
+            via += f" · R{u['round']}"
+        elo = ("Elo s/d" if u["elo_rival"] is None else f"Elo {u['elo_rival']:.0f}")
+        trozos.append(
+            f'<div style="display:grid;grid-template-columns:20px 1fr auto;gap:10px;'
+            f'align-items:baseline;margin:7px 0">'
+            f'<span style="font:700 15px \'Barlow Condensed\',sans-serif;color:{color}" '
+            f'aria-label="{"ganó" if u["gano"] else "perdió"}">{marca}</span>'
+            f'<div><div style="font:600 14px Inter,sans-serif">'
+            f'{html.escape(u["rival"])}</div>'
+            f'<div style="font:400 11px Inter,sans-serif;color:#8A94A6">'
+            f'{html.escape(u["fecha"])} · {html.escape(via)}</div></div>'
+            f'<span style="font:600 13px \'Barlow Condensed\',sans-serif;color:#8A94A6">'
+            f'{elo}</span></div>')
+    st.html("".join(trozos))
+
+
+def _desglose(cuenta):
+    return ", ".join(f"{n} por {_VIA[m]}" for m, n in cuenta.items() if n) or "ninguna"
+
+
+def desglose_metodos(resumen):
+    """Como gana y como pierde. `fighter_state` tiene el % de finalizaciones, pero no si
+    lo noquearon o lo sometieron, que es la primera pregunta que se hace mirando un par."""
+    st.caption(f"**Gana:** {_desglose(resumen['gana_por'])} · "
+               f"**Pierde:** {_desglose(resumen['pierde_por'])}")
+
+
+def ficha_peleador(nombre, estado, fecha, resumen, foto=None):
+    """La tarjeta de un peleador suelto: quien es, como gana, como pierde y contra quien.
+
+    Es lo que se abre al tocar un rival reciente. No dibuja la comparativa de barras: ahi
+    no hay dos esquinas que comparar, hay un peleador solo.
+    """
+    with st.container(border=True):
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.html(avatar(foto, nombre, COLOR_A, lado=44))
+            st.markdown(f"### {nombre}")
+        clave = nombres.normalizar(nombre)
+        if clave in estado.index:
+            fila = estado.loc[clave]
+            with st.container(horizontal=True, vertical_alignment="center"):
+                st.badge(f"Elo {fila['elo']:.0f}", color="blue",
+                         icon=":material/military_tech:")
+                st.badge(f"Elo medio de sus rivales {fila['avg_opp_elo']:.0f}",
+                         color="gray")
+                if resumen:
+                    st.badge(f"{resumen['record']['w']}-{resumen['record']['l']} en UFC",
+                             color="gray", icon=":material/scoreboard:")
+                if resumen and resumen["stance"]:
+                    st.badge(resumen["stance"], color="gray")
+        else:
+            st.caption("No está en el dataset del modelo: peleó antes del corte de datos "
+                       "o su ficha quedó con otro nombre.")
+        if not resumen:
+            st.caption("Sin peleas registradas en UFC antes de esta fecha.")
+            return
+        desglose_metodos(resumen)
+        ultimas_peleas(resumen)
+
+
 def historial(df):
     """El ledger con nombres de peleador en vez de "a"/"b". Una fila = un solo lado."""
     sin_lado = df["lado"] == ""
@@ -391,10 +649,14 @@ def historial(df):
     })
 
 
-def picks_pelea(fila):
+def picks_pelea(fila, detalle=True):
     """El voto humano de una pelea: seleccion, apoyo y quien eligio que.
 
     `fila` es una fila de `predictores.ranking()`. La dibujan Predictores y Cartelera.
+
+    Con `detalle=False` se corta la lista de quien voto que. Es lo que pide el Resumen:
+    once peleas por tres predictores son treinta y tres lineas, y ahi el panel deja de
+    ser un panel. El nombre de cada predictor sigue estando en Predictores.
     """
     if not fila.seleccion:
         st.caption("No hay una mayoría humana para esta pelea.")
@@ -418,7 +680,7 @@ def picks_pelea(fila):
                      icon=":material/smart_toy:")
         if pd.notna(fila.cuota):
             st.badge(f"Cuota {fila.cuota:.2f}", color="violet", icon=":material/sell:")
-    for pick in fila.detalle:
+    for pick in (fila.detalle if detalle else ()):
         # La precision va al lado de la pick: sin eso, cuatro nombres pesan igual y el
         # que acierta el 62% se lee como el que acierta el 40%.
         historial = (f"{pick['acierto']:.0%} · {pick['total']} resultados"
@@ -464,6 +726,38 @@ def ia_veredicto(fila, pelea):
         st.caption(f"Contra el mejor precio publicado ({float(cuota):.2f} en "
                    f"{fila['casa']}) esa probabilidad da un EV de {float(ev):+.1%}. "
                    "Lo calculó el código después; la IA nunca vio esta cuota.")
+
+
+def ia_apuesta(fila, pelea):
+    """Una linea: si la IA da esta pelea para apostar, y a quien.
+
+    No decide nada. `cumple_regla` ya lo resolvio `analista.ev_contra_mercado` cuando
+    corrio el analisis, con el piso de EV preregistrado en `config/gate.json` y contra el
+    mejor precio de ese momento. Aca solo se muestra lo que quedo escrito en la fila.
+
+    `fila` puede ser None: una cartelera sin analizar tiene que dibujarse igual y decir
+    que le falta, no desaparecer la linea.
+    """
+    if fila is None:
+        st.caption(":material/smart_toy: Sin análisis de IA para esta pelea.")
+        return
+
+    quien = pelea["a"] if fila["pick"] == "a" else pelea["b"]
+    if fila.get("cumple_regla"):
+        st.success(f"**Apostar a {quien}** — EV {float(fila['ev_ia']):+.1%} a cuota "
+                   f"{float(fila['cuota_tomada']):.2f} en {fila['casa']}.",
+                   icon=":material/savings:")
+    elif (fila.get("veredicto") or "definido") == "parejo":
+        st.caption(f":material/balance: La IA ve la pelea pareja — se inclina apenas por "
+                   f"{quien}, pero no la da para apostar.")
+    elif pd.notna(fila.get("ev_ia")):
+        st.caption(f":material/smart_toy: La IA elige a {quien} (confianza "
+                   f"{fila['confianza']}), pero al precio de hoy da un EV de "
+                   f"{float(fila['ev_ia']):+.1%}: no llega al piso para apostar.")
+    else:
+        st.caption(f":material/smart_toy: La IA elige a {quien} (confianza "
+                   f"{fila['confianza']}). Sin cuota publicada no se puede medir si "
+                   "el precio la paga.")
 
 
 def ia_tarjeta(fila, pelea):

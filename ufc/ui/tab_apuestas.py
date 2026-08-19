@@ -5,8 +5,8 @@ import pandas as pd
 import streamlit as st
 
 from ufc.datos import betano, cartelera, oddsapi
-from ufc.modelo import apuesta as decidir
 from ufc.modelo import gate, predict
+from ufc.modelo import apuesta as decidir
 from ufc.registro import apuestas, banca, predictores
 from ufc.ui import boleta, comunes
 

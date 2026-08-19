@@ -265,14 +265,21 @@ class Analista:
         """-> (veredicto validado, {'prompt_tokens', 'output_tokens'})."""
         from google.genai import types
 
-        respuesta = reintentos.con_reintentos(lambda: self.cliente.models.generate_content(
-            model=self.modelo,
-            contents=dossier_mod.render(dossier),
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-                response_json_schema=ESQUEMA,
-                http_options=types.HttpOptions(timeout=60_000),
-            ),
-        ), label="consenso")
+        # El grifo va ADENTRO de lo que se reintenta: un 429 que vuelve tiene que hacer
+        # la misma cola que una llamada nueva. `consenso.ejecutar` corre esto en cuatro
+        # hilos, y sin el freno los cuatro salian juntos contra un limite de 10 por minuto.
+        def llamar():
+            reintentos.espaciar()
+            return self.cliente.models.generate_content(
+                model=self.modelo,
+                contents=dossier_mod.render(dossier),
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_json_schema=ESQUEMA,
+                    http_options=types.HttpOptions(timeout=60_000),
+                ),
+            )
+
+        respuesta = reintentos.con_reintentos(llamar, label="consenso")
         return validar(json.loads(respuesta.text), dossier), _usage(respuesta)

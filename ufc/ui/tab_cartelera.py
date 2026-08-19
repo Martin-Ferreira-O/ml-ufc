@@ -6,38 +6,16 @@ import streamlit as st
 
 from ufc import nombres
 from ufc.datos import betano, cartelera, oddsapi
-from ufc.ia import analista, consenso as ia_consenso
+from ufc.ia import analista, consenso as ia_consenso, historial
 from ufc.modelo import predict
 from ufc.registro import ledger, predictores
 from ufc.ui import cartel, comunes
 
 
-_EVENTO_ACTIVO = "cartelera_evento_activo"
 _VER_ANTERIORES = "cartelera_ver_anteriores"
 # El indice de la pelea a abrir. Lo escribe el clic en el cartel; queda como estado para
 # que los tests, que no pueden clickear un componente, abran el mismo modal.
 _ABRIR_PELEA = "cartelera_abrir_pelea"
-_MESES = ("ene", "feb", "mar", "abr", "may", "jun",
-          "jul", "ago", "sept", "oct", "nov", "dic")
-
-
-def _clave(evento):
-    """Identidad estable entre reruns y refrescos de la lista de ESPN."""
-    return f"{evento['fecha']}|{evento['evento']}"
-
-
-def _fecha(fecha):
-    """Fecha ISO de ESPN en una etiqueta corta e independiente del locale del host."""
-    try:
-        d = datetime.date.fromisoformat(str(fecha)[:10])
-    except ValueError:
-        return str(fecha)
-    return f"{d.day} {_MESES[d.month - 1]} {d.year}"
-
-
-def _meta(evento):
-    n = len(evento["peleas"])
-    return f"{_fecha(evento['fecha'])} · {n} {'pelea' if n == 1 else 'peleas'}"
 
 
 def _cambiar_vista(anteriores):
@@ -73,7 +51,7 @@ def _agenda_anteriores(eventos, pagina_predictores):
                           vertical_alignment="center"):
             with st.container(gap=None):
                 st.markdown(f"**{evento['evento']}**")
-                st.caption(_meta(evento))
+                st.caption(comunes.meta_evento(evento))
             if pagina_predictores is not None:
                 st.page_link(pagina_predictores, label="Cargar picks",
                              icon=":material/edit_note:",
@@ -87,27 +65,13 @@ def _agenda(eventos):
     doce carteleras a la vez y la agenda empujaba la cartelera que se venia a ver
     debajo de dos pantallas de eventos de dentro de tres meses.
     """
-    eventos = sorted(eventos, key=lambda e: e.get("fecha") or "9999-12-31")
-    por_clave = {_clave(e): e for e in eventos}
-    if st.session_state.get(_EVENTO_ACTIVO) not in por_clave:
-        st.session_state[_EVENTO_ACTIVO] = _clave(eventos[0])
-    proximo = _clave(eventos[0])
-
-    def etiqueta(clave):
-        e = por_clave[clave]
-        prefijo = "Próximo · " if clave == proximo else ""
-        return f"{prefijo}{e['evento']} · {_meta(e)}"
-
     with st.container(horizontal=True, vertical_alignment="bottom"):
-        st.selectbox("Cartelera", list(por_clave), key=_EVENTO_ACTIVO,
-                     format_func=etiqueta,
-                     help="Las carteleras anunciadas, de la más cercana a la más lejana.")
+        evento = comunes.selector_cartelera(eventos)
         st.button("Anteriores", icon=":material/history:",
                   help="Carteleras que ya ocurrieron, para cargar picks y confirmar "
                        "resultados.",
                   on_click=_cambiar_vista, args=(True,))
-
-    return por_clave[st.session_state[_EVENTO_ACTIVO]]
+    return evento
 
 
 def _metodos(m):
@@ -133,6 +97,53 @@ def _intel(evento):
     checks = {nombres.normalizar(c["fighter"]): c for c in informe["checks"]}
     perfiles = comunes.intel_perfiles(tuple(c["fighter"] for c in informe["checks"]))
     return checks, perfiles
+
+
+_RIVAL = "cartelera_rival"
+_ULTIMAS = 5
+
+
+def _rivales(pelea, evento, estado, retratos):
+    """Contra quien viene peleando cada uno, y la ficha del rival que se toque.
+
+    Los widgets de aca adentro no cierran el modal: `st.dialog` es un fragment (envuelve
+    su cuerpo en `_fragment`), asi que tocar las pills re-corre solo la ventana y no el
+    script entero — que ademas volveria a pedirle precios a Betano y a The Odds API.
+    """
+    largo, stances = historial.cargar()   # lru_cache: una lectura de disco por proceso
+    resumenes = {pelea[lado]: historial.resumen(pelea[lado], evento["fecha"], largo=largo,
+                                                stances=stances, estado=estado,
+                                                n=_ULTIMAS)
+                 for lado in ("a", "b")}
+    with st.container(horizontal=True):
+        for nombre, resumen in resumenes.items():
+            with st.container(border=True):
+                st.markdown(f"**{nombre}**")
+                if resumen:
+                    comunes.desglose_metodos(resumen)
+                    comunes.ultimas_peleas(resumen, n=_ULTIMAS)
+                else:
+                    st.caption("Sin peleas en UFC antes de este evento.")
+    st.caption("El Elo es el de **hoy**, no el que tenía ese rival el día de esa pelea: es "
+               "lo único que guarda el dataset. O sea que un rival que se hundió después "
+               "aparece más bajo de lo que estaba cuando se pelearon.")
+
+    opciones = [u["rival"] for r in resumenes.values() if r for u in r["ultimas"]]
+    if not opciones:
+        return
+    # `dict.fromkeys` y no `set`: dos peleadores pueden compartir rival y el orden tiene
+    # que seguir siendo el de la lista de arriba, no uno aleatorio.
+    elegido = st.pills("Ver la ficha de un rival", list(dict.fromkeys(opciones)),
+                       key=f"{_RIVAL}_{evento['evento']}_{pelea['a']}")
+    if elegido:
+        # ponytail: la foto sale del lote que ya bajo la cartelera, y un rival no esta ahi
+        # -> monograma. Bajarla al vuelo seria un request y un spinner adentro del modal en
+        # cada clic; si algun dia se quiere la cara, va `comunes.retratos((elegido,))`.
+        comunes.ficha_peleador(
+            elegido, estado, evento["fecha"],
+            historial.resumen(elegido, evento["fecha"], largo=largo, stances=stances,
+                              estado=estado, n=_ULTIMAS),
+            foto=retratos.get(elegido))
 
 
 def _detalle(pelea, fila, suyos, perfiles, retratos):
@@ -188,13 +199,20 @@ def _boton_ia(evento):
             label=(f"Listo — {r['analizadas']} peleas analizadas, {r['omitidas']} ya "
                    f"estaban de hoy, {r['errores']} con error"),
             state="error" if r["errores"] else "complete")
+        if r["fallos"]:
+            # Las que salieron bien ya quedaron guardadas por `run_day`, asi que volver a
+            # apretar solo reintenta estas y no vuelve a pagar las otras.
+            st.warning("No se pudieron analizar estas peleas. Volvé a apretar el botón "
+                       "para reintentar solo esas:", icon=":material/warning:")
+            for fallo in r["fallos"]:
+                st.caption(f"· {fallo}")
         st.caption(f"{n} picks registradas como «{ia_consenso.IA_PREDICTOR}» · "
                    f"{r['prompt_tokens']} tokens de entrada, {r['output_tokens']} de salida")
     comunes.ia_veredictos.clear()
     st.rerun()
 
 
-def _pelea(pelea, i, evento, modelo, cuotas, r, info, hay_mercado,
+def _pelea(pelea, i, evento, modelo, estado, cuotas, r, info, hay_mercado,
            fila, suyos, perfiles, retratos, ia):
     """Todo lo que se sabe de una pelea. Es el contenido del modal que abre el cartel."""
     with st.container(horizontal=True, vertical_alignment="center"):
@@ -244,6 +262,12 @@ def _pelea(pelea, i, evento, modelo, cuotas, r, info, hay_mercado,
     else:
         comunes.resultado(pelea["a"], pelea["b"], r, cuotas,
                           fotos=(retratos.get(pelea["a"]), retratos.get(pelea["b"])))
+
+    # Hermanos de `_detalle` y no adentro: los expanders no se anidan.
+    with st.expander("Estadísticas comparadas", icon=":material/bar_chart:"):
+        comunes.comparativa(pelea["a"], pelea["b"], estado, evento["fecha"])
+    with st.expander("Últimos rivales", icon=":material/history:"):
+        _rivales(pelea, evento, estado, retratos)
 
     if ia is not None:
         comunes.ia_veredicto(ia, pelea)
@@ -307,7 +331,7 @@ def render(modelo, estado, pagina_predictores=None):
 
     st.header(evento["evento"], divider="gray")
     with st.container(horizontal=True, vertical_alignment="center"):
-        st.caption(_meta(evento))
+        st.caption(comunes.meta_evento(evento))
         if falta := comunes.cuenta_regresiva(evento["fecha"]):
             st.badge(falta, icon=":material/schedule:", color="blue")
 
@@ -370,6 +394,6 @@ def render(modelo, estado, pagina_predictores=None):
     ia = veredictos.get((pelea["a"], pelea["b"]))
     suyos = [(lado, checks[clave]) for lado in ("a", "b")
              if (clave := nombres.normalizar(pelea[lado])) in checks]
-    _modal(pelea, elegida, evento, modelo, cuotas_de[elegida], preds[elegida],
+    _modal(pelea, elegida, evento, modelo, estado, cuotas_de[elegida], preds[elegida],
            infos[elegida], any(cuotas_de), por_orden[elegida], suyos, perfiles,
            retratos, ia)

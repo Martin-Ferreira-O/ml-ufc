@@ -18,7 +18,8 @@ from ufc.datos import cartelera
 from ufc.intel import analyzer, identities, sources, store
 # Re-export: el helper se mudo a su propio modulo para que `ufc/ia/` pueda usarlo sin
 # arrastrar todo el bot, pero `bot.con_reintentos` sigue siendo un nombre valido.
-from ufc.intel.reintentos import TRANSIENT_STATUS, _retry_after, con_reintentos  # noqa: F401
+from ufc.intel.reintentos import (  # noqa: F401
+    TRANSIENT_STATUS, _retry_after, con_reintentos, espaciar)
 
 
 DEFAULT_TIMEZONE = "America/Santiago"
@@ -119,18 +120,26 @@ def ejecutar(evento, *, db, provider=None, sin_ia=False, force=False,
                 warnings = []
                 if grounding:
                     try:
+                        def descubrir():
+                            espaciar()
+                            return provider.discover(fighter, opponent, evento)
+
                         discovered, discovery_usage = con_reintentos(
-                            lambda: provider.discover(fighter, opponent, evento),
-                            label=f"grounding {fighter}")
+                            descubrir, label=f"grounding {fighter}")
                         unique = {}
                         for evidence in [*evidencias, *discovered]:
                             unique.setdefault(evidence.url.split("#", 1)[0], evidence)
                         evidencias = list(unique.values())
                     except Exception as exc:
                         warnings.append(f"Google Search grounding fallo: {exc}")
-                report, usage = con_reintentos(
-                    lambda: provider.analyze(fighter, opponent, evento, evidencias),
-                    label=f"analisis {fighter}")
+                # `espaciar` adentro del callable: el reintento de un 429 hace la misma
+                # cola que la llamada original. Son ~28 peleadores seguidos contra un
+                # limite por minuto, asi que sin el freno se pasa igual sin paralelismo.
+                def analizar():
+                    espaciar()
+                    return provider.analyze(fighter, opponent, evento, evidencias)
+
+                report, usage = con_reintentos(analizar, label=f"analisis {fighter}")
                 for key in ("prompt_tokens", "output_tokens"):
                     usage[key] = (usage.get(key, 0) or 0) + \
                         (discovery_usage.get(key, 0) or 0)

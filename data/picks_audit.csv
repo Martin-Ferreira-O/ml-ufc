@@ -378,3 +378,67 @@ ts_utc,accion,revisor,predictor,evento,fecha_evento,a,b,pick,metodo,round,confia
 2026-08-11T02:12:25.674459+00:00,pick_created,usuario_app,MMAfriends,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Lucas Fernando,Rafael Tobias,a,,,,manual,True
 2026-08-11T02:12:25.674459+00:00,pick_created,usuario_app,MMAfriends,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Neil Magny,Ramiz Brahimaj,a,,,,manual,True
 2026-08-11T02:12:25.674459+00:00,pick_created,usuario_app,MMAfriends,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jeremiah Wells,Myktybek Orolbai,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Islam Makhachev,Ian Machado Garry,a,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Mackenzie Dern,Gillian Robertson,a,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Charles Johnson,Jose Ochoa,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Dustin Stoltzfus,Mansur Abdul-Malik,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Edson Barboza,Esteban Ribovics,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Chidi Njokuani,Joel Álvarez,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jalin Turner,Kauê Fernandes,a,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Eric McConico,Donte Johnson,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Vicente Luque,Tresean Gore,a,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Lucas Fernando,Rafael Tobias,a,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Neil Magny,Ramiz Brahimaj,b,,,,manual,True
+2026-08-11T23:53:18.451167+00:00,pick_created,usuario_app,FaceOff MMA,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jeremiah Wells,Myktybek Orolbai,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Islam Makhachev,Ian Machado Garry,a,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Mackenzie Dern,Gillian Robertson,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Charles Johnson,Jose Ochoa,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Dustin Stoltzfus,Mansur Abdul-Malik,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Edson Barboza,Esteban Ribovics,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Chidi Njokuani,Joel Álvarez,a,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jalin Turner,Kauê Fernandes,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Eric McConico,Donte Johnson,a,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Vicente Luque,Tresean Gore,a,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Neil Magny,Ramiz Brahimaj,b,,,,manual,True
+2026-08-12T00:33:24.851858+00:00,pick_created,usuario_app,tallermma,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jeremiah Wells,Myktybek Orolbai,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Islam Makhachev,Ian Machado Garry,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Mackenzie Dern,Gillian Robertson,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jalin Turner,Kauê Fernandes,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Dustin Stoltzfus,Mansur Abdul-Malik,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Edson Barboza,Esteban Ribovics,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Chidi Njokuani,Joel Álvarez,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Charles Johnson,Eduardo Chapolin,a,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Eric McConico,Donte Johnson,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Vicente Luque,Tresean Gore,a,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Lucas Fernando,Rafael Tobias,a,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Neil Magny,Ramiz Brahimaj,b,,,,manual,True
+2026-08-14T23:57:00.551165+00:00,pick_created,usuario_app,JuanCarlosUfc,UFC 330: Makhachev vs. Machado Garry,2026-08-15,Jeremiah Wells,Myktybek Orolbai,b,,,,manual,True
+2026-08-16T22:27:34.112195+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Carli Judice,Jeisla Chaves,a,dec,,0.65,ia,True
+2026-08-16T22:27:34.112195+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Kennedy Nzechukwu,Shamil Gaziev,a,ko,,0.62,ia,True
+2026-08-16T22:27:34.112195+00:00,pick_created,ufc.ia.consenso,IA (Gemini),UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Gauge Young,Stan Dorsainvil,a,dec,,0.65,ia,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Anthony Hernandez,Gregory Rodrigues,b,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Serghei Spivac,Vitor Petrino,b,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Roman Dolidze,Reinier de Ridder,b,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Mason Jones,MarQuel Mederos,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Carli Judice,Jeisla Chaves,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Anthony Wint,Terrance Chatman,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Jamall Emmers,Lerryan Douglas,b,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Kennedy Nzechukwu,Shamil Gaziev,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Chris Padilla,Nasrat Haqparast,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Marcio Barbosa,Ryan Kuse,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Gauge Young,Stan Dorsainvil,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Wes Schultz,Jackson McVey,a,,,,manual,True
+2026-08-18T22:57:16.377947+00:00,pick_created,usuario_app,FaceOff MMA,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Elise Reed,Shanelle Dyer,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Anthony Hernandez,Gregory Rodrigues,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Serghei Spivac,Vitor Petrino,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Roman Dolidze,Reinier de Ridder,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Mason Jones,MarQuel Mederos,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Carli Judice,Jeisla Chaves,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Anthony Wint,Terrance Chatman,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Jamall Emmers,Lerryan Douglas,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Kennedy Nzechukwu,Shamil Gaziev,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Chris Padilla,Nasrat Haqparast,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Marcio Barbosa,Ryan Kuse,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Gauge Young,Stan Dorsainvil,a,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Wes Schultz,Jackson McVey,b,,,,manual,True
+2026-08-18T23:03:03.097760+00:00,pick_created,usuario_app,MMAfriends,UFC Fight Night: Hernandez vs. Rodrigues,2026-08-22,Elise Reed,Shanelle Dyer,b,,,,manual,True

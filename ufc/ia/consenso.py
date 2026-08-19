@@ -178,18 +178,23 @@ def ejecutar(evento, *, ctx=None, provider=None, force=False, run_day=None,
                     # run se reintenta sola, porque no quedo guardada.
                     errores.append((pelea, exc))
                     print(f"ERROR {pelea['a']} vs {pelea['b']}: {exc}", flush=True)
-                    continue
-                fila = store.fila_desde(veredicto, d, run_day=run_day,
-                                        modelo_ia=modelo_ia, usage=usage)
-                store.guardar(fila, veredicto, d)
-                hechas.append((pelea, veredicto, usage))
-                print(f"OK  {pelea['a']} vs {pelea['b']} — "
-                      f"{_resumen_pelea(pelea, veredicto, d)}", flush=True)
+                else:
+                    fila = store.fila_desde(veredicto, d, run_day=run_day,
+                                            modelo_ia=modelo_ia, usage=usage)
+                    store.guardar(fila, veredicto, d)
+                    hechas.append((pelea, veredicto, usage))
+                    print(f"OK  {pelea['a']} vs {pelea['b']} — "
+                          f"{_resumen_pelea(pelea, veredicto, d)}", flush=True)
+                # Tambien en la rama de error: si no, una pelea que falla deja la barra
+                # de la app trabada abajo del 100% aunque el run haya terminado.
                 if progreso:
                     progreso(len(hechas) + len(errores), len(pendientes), pelea)
 
     return {"evento": evento["evento"], "analizadas": len(hechas), "omitidas": omitidas,
             "errores": len(errores), "pendientes": len(pendientes),
+            # El motivo, no solo el conteo: un 429 que sobrevivio a los reintentos y un
+            # nombre de modelo mal escrito se ven igual en un numero.
+            "fallos": [f"{p['a']} vs {p['b']}: {exc}" for p, exc in errores],
             "prompt_tokens": sum(u.get("prompt_tokens", 0) for _, _, u in hechas),
             "output_tokens": sum(u.get("output_tokens", 0) for _, _, u in hechas)}
 

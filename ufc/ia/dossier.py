@@ -89,6 +89,16 @@ assert set(_COLUMNAS) == set(features.FEATURES), (
 # se resta, se compara. Se muestran igual, pero sin la columna de diferencia.
 SIN_DIFERENCIA = {"reemplazo", "peso_no_dado"}
 
+# En estos el numero chico es la buena noticia: la barra comparativa de la app tiene que
+# inclinarse hacia el que recibe menos, no hacia el que recibe mas.
+MENOR_MEJOR = {"sapm", "kd_against_per15", "finished_against_rate",
+               "prev_ko_l", "prev_sub_l", "age"}
+# Ni mejor ni peor: descansar mucho es oxido o es recuperacion, y no esta medido cual.
+# Se muestran los dos valores pero sin coronar a ninguno.
+NEUTRO = {"days_since_last"}
+# Grupo que no es del peleador sino de la pelea: no hay nada que comparar entre esquinas.
+SIN_COMPARAR = {"Circunstancia de ESTA pelea"}
+
 FALTA = "s/d"
 
 # Version del prompt. Sube cuando cambia QUE ve la IA, no cuando cambia la redaccion: la
@@ -116,7 +126,7 @@ def _num(valor):
     return None if math.isnan(f) or math.isinf(f) else f
 
 
-def _fmt(valor, formato):
+def fmt(valor, formato):
     v = _num(valor)
     return FALTA if v is None else formato.format(v)
 
@@ -129,7 +139,7 @@ def _dias_para(fecha, hoy=None):
     return (objetivo - (hoy or datetime.date.today())).days
 
 
-def _perfil(nombre, estado, fecha, circ=(None, None)):
+def perfil(nombre, estado, fecha, circ=(None, None)):
     """-> dict con las 28 features en valor ABSOLUTO, o None si no esta en el dataset.
 
     Usa `predict._snapshot` a proposito y no una lectura directa del CSV: la edad y los
@@ -143,11 +153,11 @@ def _perfil(nombre, estado, fecha, circ=(None, None)):
         return None
     fila = estado.loc[clave]
     snap = predict._snapshot(fila, pd.Timestamp(fecha), features.FEATURES)
-    perfil = {col: _num(snap.get(col)) for col in features.FEATURES}
+    salida = {col: _num(snap.get(col)) for col in features.FEATURES}
     for col, valor in zip(predict.CIRCUNSTANCIA, circ):
-        perfil[col] = _num(valor)
-    perfil["homonimo"] = bool(fila.get("homonimo"))
-    return perfil
+        salida[col] = _num(valor)
+    salida["homonimo"] = bool(fila.get("homonimo"))
+    return salida
 
 
 def _tabla_features(perfil_a, perfil_b):
@@ -163,8 +173,8 @@ def _tabla_features(perfil_a, perfil_b):
                 # `streak` ya viene con signo: agregarle otro da "{:++.0f}", que no parsea
                 con_signo = formato if "{:+" in formato else formato.replace("{:", "{:+")
                 dif = con_signo.format(va - vb)
-            salida.append({"etiqueta": etiqueta, "a": _fmt(va, formato),
-                           "b": _fmt(vb, formato), "dif": dif})
+            salida.append({"etiqueta": etiqueta, "a": fmt(va, formato),
+                           "b": fmt(vb, formato), "dif": dif})
         bloques.append({"grupo": grupo, "filas": salida})
     return bloques
 
@@ -295,8 +305,8 @@ def armar(pelea, prediccion, evento, *, cuotas=None, consenso=None, metodo=None,
     desde `intel.store.ultimo_evento`.
     """
     fecha = evento.get("fecha")
-    perfil_a = _perfil(pelea["a"], estado, fecha, circ_a)
-    perfil_b = _perfil(pelea["b"], estado, fecha, circ_b)
+    perfil_a = perfil(pelea["a"], estado, fecha, circ_a)
+    perfil_b = perfil(pelea["b"], estado, fecha, circ_b)
     inteligencia = _seccion_intel(pelea, intel)
     historial = historial or {"a": None, "b": None}
     return {
